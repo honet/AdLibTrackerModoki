@@ -15,6 +15,7 @@
 #include "../app/Sound.h"
 #include "../core/player/A2Player.h"
 #include "../core/song/EffectDefs.h"
+#include "../core/song/ModuleLoader.h"
 #include "../platform/System.h"
 #include "../platform/input/Keyboard.h"
 
@@ -1433,20 +1434,25 @@ void load_song(const std::wstring& path)
 {
     fade_out_playback(false);
 
+    const bool is_pattern = GetModuleKind(path) == ModuleKind::Pattern;
     std::wstring error;
-    if (!sound_open_song(path, error)) {
+    if (!sound_open_song(path, pattern_patt, error)) {
         MessageBoxW(g_hwnd, error.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
         keyboard_init();
+        refresh_windows();
         return;
     }
 
     PlayerLock lock;
     A2Player& p = P();
-    module_archived = true;
-    _name_scrl_shift = 0;
-    _name_scrl_shift_ctr = 1;
-    _name_scrl_pending_frames = 0;
-    POSITIONS_reset();
+    // A2P はパターンを読み込むだけなので、表示位置と曲の保存状態はそのまま
+    if (!is_pattern) {
+        module_archived = true;
+        _name_scrl_shift = 0;
+        _name_scrl_shift_ctr = 1;
+        _name_scrl_pending_frames = 0;
+        POSITIONS_reset();
+    }
     force_scrollbars = true;
     PATTERN_ORDER_page_refresh(pattord_page);
     PATTERN_page_refresh(pattern_page);
@@ -1462,7 +1468,7 @@ void FILE_open()
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = g_hwnd;
-    ofn.lpstrFilter = L"AdLib Tracker II モジュール (*.a2m)\0*.a2m\0すべてのファイル (*.*)\0*.*\0";
+    ofn.lpstrFilter = ModuleFileFilter();
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;

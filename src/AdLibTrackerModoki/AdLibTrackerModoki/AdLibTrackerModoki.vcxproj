@@ -158,6 +158,10 @@
     <ClInclude Include="core\song\EffectDefs.h" />
     <ClInclude Include="core\song\Depack.h" />
     <ClInclude Include="core\song\A2mLoader.h" />
+    <ClInclude Include="core\song\A2tLoader.h" />
+    <ClInclude Include="core\song\A2pLoader.h" />
+    <ClInclude Include="core\song\LoaderCommon.h" />
+    <ClInclude Include="core\song\ModuleLoader.h" />
     <ClInclude Include="core\player\A2Player.h" />
     <ClInclude Include="core\player\SampleClockDriver.h" />
     <ClInclude Include="core\audio\IAudioOutput.h" />
@@ -185,6 +189,10 @@
     <ClCompile Include="core\song\Song.cpp" />
     <ClCompile Include="core\song\Depack.cpp" />
     <ClCompile Include="core\song\A2mLoader.cpp" />
+    <ClCompile Include="core\song\A2tLoader.cpp" />
+    <ClCompile Include="core\song\A2pLoader.cpp" />
+    <ClCompile Include="core\song\LoaderCommon.cpp" />
+    <ClCompile Include="core\song\ModuleLoader.cpp" />
     <ClCompile Include="core\player\A2Player.cpp" />
     <ClCompile Include="core\player\SampleClockDriver.cpp" />
     <ClCompile Include="core\opl\Opl3Emulator.cpp" />

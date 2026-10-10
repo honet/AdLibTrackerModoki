@@ -7,7 +7,7 @@
 #include "../core/opl/Opl3EmulatorAt2.h"
 #include "../core/player/A2Player.h"
 #include "../core/player/SampleClockDriver.h"
-#include "../core/song/A2mLoader.h"
+#include "../core/song/ModuleLoader.h"
 #include "../platform/audio/DirectSoundOutput.h"
 
 namespace
@@ -67,19 +67,37 @@ void sound_done()
     g_emulatorNuked.reset();
 }
 
-bool sound_open_song(const std::wstring& path, std::wstring& error)
+bool sound_open_song(const std::wstring& path, uint8_t pattern, std::wstring& error)
 {
     if (!g_player) {
         error = L"サウンドが初期化されていません";
         return false;
     }
 
-    auto song = std::make_shared<Song>();
-    if (!LoadA2m(path, *song, Song::Defaults(), error)) return false;
+    switch (GetModuleKind(path)) {
+    case ModuleKind::Song: {
+        auto song = std::make_shared<Song>();
+        if (!LoadSongModule(path, *song, Song::Defaults(), error)) return false;
 
-    std::lock_guard lock(g_driver->mutex());
-    g_player->setSong(song);
-    return true;
+        std::lock_guard lock(g_driver->mutex());
+        g_player->setSong(song);
+        return true;
+    }
+
+    case ModuleKind::Pattern: {
+        // 再生中の曲のパターンを書き換えるため、演奏を止めてから読み込む
+        std::lock_guard lock(g_driver->mutex());
+        std::shared_ptr<Song> song = g_player->song();
+        g_player->stopPlaying();
+        const bool ok = LoadPatternModule(path, *song, pattern, error);
+        g_player->setSong(song);
+        return ok;
+    }
+
+    default:
+        error = L"対応していない形式です";
+        return false;
+    }
 }
 
 void sound_play()

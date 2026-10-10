@@ -108,6 +108,18 @@
     <ClInclude Include="core\song\A2mLoader.h">
       <Filter>core\song</Filter>
     </ClInclude>
+    <ClInclude Include="core\song\A2tLoader.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
+    <ClInclude Include="core\song\A2pLoader.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
+    <ClInclude Include="core\song\LoaderCommon.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
+    <ClInclude Include="core\song\ModuleLoader.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
     <ClInclude Include="core\player\A2Player.h">
       <Filter>core\player</Filter>
     </ClInclude>
@@ -174,6 +186,18 @@
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\song\A2mLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\A2tLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\A2pLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\LoaderCommon.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\ModuleLoader.cpp">
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\player\A2Player.cpp">
