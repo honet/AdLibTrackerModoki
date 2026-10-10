@@ -144,11 +144,17 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AdLibTrackerModoki.h" />
+    <ClInclude Include="core\song\SongData.h" />
+    <ClInclude Include="core\song\Song.h" />
+    <ClInclude Include="core\song\EffectDefs.h" />
+    <ClInclude Include="core\song\Depack.h" />
+    <ClInclude Include="core\song\A2mLoader.h" />
+    <ClInclude Include="core\player\A2Player.h" />
+    <ClInclude Include="core\player\SampleClockDriver.h" />
     <ClInclude Include="core\audio\IAudioOutput.h" />
     <ClInclude Include="core\audio\IAudioSource.h" />
     <ClInclude Include="core\opl\IOplDevice.h" />
     <ClInclude Include="core\opl\Opl3Emulator.h" />
-    <ClInclude Include="core\opl\OplTestSynth.h" />
     <ClInclude Include="platform\audio\DirectSoundOutput.h" />
     <ClInclude Include="third_party\nukedopl3\opl3.h" />
     <ClInclude Include="framework.h" />
@@ -157,8 +163,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AdLibTrackerModoki.cpp" />
+    <ClCompile Include="core\song\Song.cpp" />
+    <ClCompile Include="core\song\Depack.cpp" />
+    <ClCompile Include="core\song\A2mLoader.cpp" />
+    <ClCompile Include="core\player\A2Player.cpp" />
+    <ClCompile Include="core\player\SampleClockDriver.cpp" />
     <ClCompile Include="core\opl\Opl3Emulator.cpp" />
-    <ClCompile Include="core\opl\OplTestSynth.cpp" />
     <ClCompile Include="platform\audio\DirectSoundOutput.cpp" />
     <ClCompile Include="third_party\nukedopl3\opl3.c">
       <SDLCheck>false</SDLCheck>

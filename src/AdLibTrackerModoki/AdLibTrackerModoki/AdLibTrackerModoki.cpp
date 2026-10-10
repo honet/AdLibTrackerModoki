@@ -4,10 +4,17 @@
 #include "framework.h"
 #include "AdLibTrackerModoki.h"
 
+#include <commdlg.h>
+#include <shellapi.h>
+
 #include <memory>
+#include <mutex>
+#include <string>
 
 #include "core/opl/Opl3Emulator.h"
-#include "core/opl/OplTestSynth.h"
+#include "core/player/A2Player.h"
+#include "core/player/SampleClockDriver.h"
+#include "core/song/A2mLoader.h"
 #include "platform/audio/DirectSoundOutput.h"
 
 #define MAX_LOADSTRING 100
@@ -16,17 +23,26 @@
 HINSTANCE hInst;                                // 現在のインターフェイス
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
+HWND g_hWnd = nullptr;                          // メイン ウィンドウ
 
 // サウンド:
-// 実機ドライバに差し替える場合は g_oplDevice を実機実装にし、g_audioOutput は不要 (nullptr) になる。
+// 実機ドライバに差し替える場合は g_oplDevice を実機実装にし、SampleClockDriver の代わりに
+// タイマーで A2Player::timerTick() を呼ぶ駆動部を使う (g_audioOutput は不要になる)。
 std::unique_ptr<Opl3Emulator> g_oplEmulator;
+std::unique_ptr<A2Player> g_player;
+std::unique_ptr<SampleClockDriver> g_driver;
 std::unique_ptr<IAudioOutput> g_audioOutput;
 IOplDevice* g_oplDevice = nullptr;
-std::unique_ptr<OplTestSynth> g_testSynth;
+
+constexpr UINT_PTR IDT_REFRESH = 1;
 
 static bool InitSound(HWND hWnd);
 static void ShutdownSound();
-static int KeyToNote(WPARAM vk);
+static void OpenSong(HWND hWnd, const std::wstring& path);
+static void ShowOpenDialog(HWND hWnd);
+static void PlaySong();
+static void StopSong();
+static void PaintStatus(HWND hWnd, HDC hdc);
 
 // このコード モジュールに含まれる関数の宣言を転送します:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -40,9 +56,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_ int       nCmdShow)
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
-
-    // TODO: ここにコードを挿入してください。
 
     // グローバル文字列を初期化する
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -53,6 +66,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     if (!InitInstance (hInstance, nCmdShow))
     {
         return FALSE;
+    }
+
+    // コマンドラインで渡された曲を開いて再生する
+    if (lpCmdLine && *lpCmdLine)
+    {
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(lpCmdLine, &argc);
+        if (argv && argc > 0)
+        {
+            OpenSong(g_hWnd, argv[0]);
+        }
+        LocalFree(argv);
     }
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_ADLIBTRACKERMODOKI));
@@ -121,11 +146,15 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    {
       return FALSE;
    }
+   g_hWnd = hWnd;
 
    if (!InitSound(hWnd))
    {
       MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
    }
+
+   DragAcceptFiles(hWnd, TRUE);
+   SetTimer(hWnd, IDT_REFRESH, 50, nullptr);
 
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
@@ -153,6 +182,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             // 選択されたメニューの解析:
             switch (wmId)
             {
+            case IDM_OPEN:
+                ShowOpenDialog(hWnd);
+                break;
+            case IDM_PLAY:
+                PlaySong();
+                break;
+            case IDM_STOP:
+                StopSong();
+                break;
             case IDM_ABOUT:
                 DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
                 break;
@@ -168,50 +206,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
-            // 暫定表示 (フェーズ3 で Direct2D のテキスト画面に置き換える)
-            RECT rc;
-            GetClientRect(hWnd, &rc);
-            InflateRect(&rc, -16, -16);
-            WCHAR text[512];
-            swprintf_s(text,
-                L"OPL3 テスト\n\n"
-                L"デバイス: %s\n"
-                L"出力: %s\n\n"
-                L"Z S X D C V G B H N J M , : C-4 ～\n"
-                L"Q 2 W 3 E R 5 T 6 Y 7 U I : C-5 ～",
-                g_oplDevice ? g_oplDevice->name() : L"(なし)",
-                g_audioOutput ? L"DirectSound" : L"(なし)");
-            DrawTextW(hdc, text, -1, &rc, DT_LEFT | DT_TOP);
+            PaintStatus(hWnd, hdc);
             EndPaint(hWnd, &ps);
         }
         break;
-    case WM_KEYDOWN:
-        if (g_testSynth && !(lParam & (1 << 30)))
+    case WM_TIMER:
+        if (wParam == IDT_REFRESH)
         {
-            const int note = KeyToNote(wParam);
-            if (note >= 0)
-            {
-                g_testSynth->noteOn(note);
-            }
+            InvalidateRect(hWnd, nullptr, TRUE);
         }
         break;
-    case WM_KEYUP:
-        if (g_testSynth)
+    case WM_DROPFILES:
         {
-            const int note = KeyToNote(wParam);
-            if (note >= 0)
+            HDROP hDrop = reinterpret_cast<HDROP>(wParam);
+            WCHAR path[MAX_PATH];
+            if (DragQueryFileW(hDrop, 0, path, MAX_PATH) > 0)
             {
-                g_testSynth->noteOff(note);
+                OpenSong(hWnd, path);
             }
-        }
-        break;
-    case WM_KILLFOCUS:
-        if (g_testSynth)
-        {
-            g_testSynth->allNotesOff();
+            DragFinish(hDrop);
         }
         break;
     case WM_DESTROY:
+        KillTimer(hWnd, IDT_REFRESH);
         ShutdownSound();
         PostQuitMessage(0);
         break;
@@ -244,18 +261,19 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 //
 //  関数: InitSound(HWND)
 //
-//  目的: OPL3 デバイスと音声出力を初期化します。
+//  目的: OPL3 デバイス・プレイヤー・音声出力を初期化します。
 //
 static bool InitSound(HWND hWnd)
 {
-    g_oplEmulator = std::make_unique<Opl3Emulator>(Opl3Emulator::NativeSampleRate);
+    const uint32_t sampleRate = Opl3Emulator::NativeSampleRate;
+    g_oplEmulator = std::make_unique<Opl3Emulator>(sampleRate);
     g_oplDevice = g_oplEmulator.get();
 
-    g_testSynth = std::make_unique<OplTestSynth>(*g_oplDevice);
-    g_testSynth->init();
+    g_player = std::make_unique<A2Player>(*g_oplDevice);
+    g_driver = std::make_unique<SampleClockDriver>(*g_player, *g_oplEmulator, sampleRate);
 
-    g_audioOutput = std::make_unique<DirectSoundOutput>(hWnd, Opl3Emulator::NativeSampleRate);
-    if (!g_audioOutput->start(g_oplEmulator.get()))
+    g_audioOutput = std::make_unique<DirectSoundOutput>(hWnd, sampleRate);
+    if (!g_audioOutput->start(g_driver.get()))
     {
         g_audioOutput.reset();
         return false;
@@ -270,30 +288,127 @@ static void ShutdownSound()
         g_audioOutput->stop();
         g_audioOutput.reset();
     }
-    g_testSynth.reset();
+    g_driver.reset();
+    g_player.reset();
     g_oplDevice = nullptr;
     g_oplEmulator.reset();
 }
 
-// テスト演奏用のキー配置 (AT2 と同じトラッカー式配列)。戻り値は MIDI ノート番号、対象外は -1
-static int KeyToNote(WPARAM vk)
+//
+//  関数: OpenSong(HWND, const std::wstring&)
+//
+//  目的: 曲を読み込んで再生を開始します。
+//
+static void OpenSong(HWND hWnd, const std::wstring& path)
 {
-    static const struct { WPARAM vk; int note; } table[] = {
-        // C-4 (60) ～
-        { 'Z', 60 }, { 'S', 61 }, { 'X', 62 }, { 'D', 63 }, { 'C', 64 }, { 'V', 65 },
-        { 'G', 66 }, { 'B', 67 }, { 'H', 68 }, { 'N', 69 }, { 'J', 70 }, { 'M', 71 },
-        { VK_OEM_COMMA, 72 },
-        // C-5 (72) ～
-        { 'Q', 72 }, { '2', 73 }, { 'W', 74 }, { '3', 75 }, { 'E', 76 }, { 'R', 77 },
-        { '5', 78 }, { 'T', 79 }, { '6', 80 }, { 'Y', 81 }, { '7', 82 }, { 'U', 83 },
-        { 'I', 84 },
-    };
-    for (const auto& e : table)
+    if (!g_player)
     {
-        if (e.vk == vk)
-        {
-            return e.note;
-        }
+        return;
     }
-    return -1;
+
+    auto song = std::make_shared<Song>();
+    std::wstring error;
+    if (!LoadA2m(path, *song, Song::Defaults(), error))
+    {
+        MessageBoxW(hWnd, (L"読み込みに失敗しました。\n" + path + L"\n" + error).c_str(), szTitle, MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    {
+        std::lock_guard lock(g_driver->mutex());
+        g_player->setSong(song);
+        g_player->startPlaying();
+    }
+
+    SetWindowTextW(hWnd, (song->title + L" - " + szTitle).c_str());
+    InvalidateRect(hWnd, nullptr, TRUE);
+}
+
+static void ShowOpenDialog(HWND hWnd)
+{
+    WCHAR path[MAX_PATH] = L"";
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hWnd;
+    ofn.lpstrFilter = L"AdLib Tracker II モジュール (*.a2m)\0*.a2m\0すべてのファイル (*.*)\0*.*\0";
+    ofn.lpstrFile = path;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (GetOpenFileNameW(&ofn))
+    {
+        OpenSong(hWnd, path);
+    }
+}
+
+static void PlaySong()
+{
+    if (g_player)
+    {
+        std::lock_guard lock(g_driver->mutex());
+        g_player->startPlaying();
+    }
+}
+
+static void StopSong()
+{
+    if (g_player)
+    {
+        std::lock_guard lock(g_driver->mutex());
+        g_player->stopPlaying();
+    }
+}
+
+// CP437 の Pascal 文字列を表示用に変換する
+static std::wstring ToWide(const std::string& s)
+{
+    if (s.empty())
+    {
+        return std::wstring();
+    }
+    const int n = MultiByteToWideChar(437, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(437, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+
+//
+//  関数: PaintStatus(HWND, HDC)
+//
+//  目的: 再生状態を表示します (フェーズ3 で Direct2D のテキスト画面に置き換える暫定表示)。
+//
+static void PaintStatus(HWND hWnd, HDC hdc)
+{
+    RECT rc;
+    GetClientRect(hWnd, &rc);
+    InflateRect(&rc, -16, -16);
+
+    std::wstring text = L"ファイルを開く: Ctrl+O またはドラッグ&ドロップ   再生: F5   停止: F8\n\n";
+    if (g_player)
+    {
+        std::lock_guard lock(g_driver->mutex());
+        const auto& song = g_player->song();
+        const FixedSongData& sd = song->data();
+        const wchar_t* status = L"停止中";
+        if (g_player->playStatus() == A2Player::PlayStatus::Playing) status = L"再生中";
+        else if (g_player->playStatus() == A2Player::PlayStatus::Paused) status = L"一時停止中";
+
+        const int seconds = static_cast<int>(g_player->timePlaying());
+        WCHAR buf[512];
+        swprintf_s(buf,
+            L"ファイル: %s\n曲名: %s\n作者: %s\n\n"
+            L"状態: %s\n"
+            L"オーダー: %02X   パターン: %02X   行: %02X\n"
+            L"スピード: %u   テンポ: %u   トラック数: %u\n"
+            L"時間: %02d:%02d\n",
+            song->title.c_str(), ToWide(sd.songname.str()).c_str(), ToWide(sd.composer.str()).c_str(),
+            status,
+            g_player->currentOrder(), g_player->currentPattern(), g_player->currentLine(),
+            g_player->currentSpeed(), g_player->currentTempo(), sd.nm_tracks,
+            seconds / 60, seconds % 60);
+        text += buf;
+    }
+    text += std::wstring(L"\n音源: ") + (g_oplDevice ? g_oplDevice->name() : L"(なし)") +
+            L"   出力: " + (g_audioOutput ? L"DirectSound" : L"(なし)");
+
+    DrawTextW(hdc, text.c_str(), -1, &rc, DT_LEFT | DT_TOP);
 }
