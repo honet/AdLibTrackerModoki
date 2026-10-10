@@ -120,6 +120,9 @@
     <ClInclude Include="core\song\ModuleLoader.h">
       <Filter>core\song</Filter>
     </ClInclude>
+    <ClInclude Include="core\song\TrackerLoaders.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
     <ClInclude Include="core\player\A2Player.h">
       <Filter>core\player</Filter>
     </ClInclude>
@@ -198,6 +201,15 @@
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\song\ModuleLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\HscLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\RadLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\S3mLoader.cpp">
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\player\A2Player.cpp">

@@ -13,6 +13,44 @@ namespace loader
 {
 
 constexpr uint16_t MAX_IRQ_FREQ = 1000;
+constexpr uint8_t BYTE_NULL = 0xff;
+
+// adtrack2.ini の既定値 (変換の設定。設定ダイアログはフェーズ 7 で実装する)
+constexpr bool adjust_tracks = true;
+constexpr bool fix_c_note_bug = true;
+constexpr bool accurate_conv = false;
+constexpr bool fmk_flip_stereo = true;
+constexpr uint8_t force_ins = 0;
+constexpr bool mod_description = false;
+
+// GENERIC_IO_BUFFER_SIZE (オリジナルの buf1 / buf2 の大きさ)
+constexpr size_t GENERIC_IO_BUFFER_SIZE = 1500 * 1024;
+
+// Pascal 版 (adt2unit.pas) の min / max。名前と逆に、min は下限で切り上げ、max は上限で切り捨てる。
+inline int32_t pas_min(int32_t value, int32_t minimum) { return value > minimum ? value : minimum; }
+inline int32_t pas_max(int32_t value, int32_t maximum) { return value < maximum ? value : maximum; }
+
+// Pascal の Round (偶数丸め)
+int32_t pas_round(double value);
+
+// truncate_string (末尾の #0 / 空白 / #255 を取り除く)
+std::string truncate_string(std::string str);
+
+// asciiz_string (#0 までの文字列。#0 がなければ空文字列)
+std::string asciiz_string(const std::string& str);
+
+// Pascal の文字配列 (array[1..N] of Char) を String に変換したもの
+template <size_t N>
+std::string char_array(const char (&arr)[N])
+{
+    return std::string(arr, N);
+}
+
+// HSC-Tracker 形式の楽器 (12 バイト) を取り込む (iloaders.inc の import_hsc_instrument)
+void import_hsc_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data);
+
+// 標準的な並びの楽器 (11 バイト) を取り込む (iloaders.inc の import_standard_instrument)
+void import_standard_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data);
 
 // BlockReadF / SeekF 相当
 class Reader

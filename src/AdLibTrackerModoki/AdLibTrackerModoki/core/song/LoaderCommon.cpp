@@ -1,5 +1,6 @@
 #include "LoaderCommon.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -392,6 +393,61 @@ void decompressOld(uint8_t method, const std::vector<uint8_t>& buf, uint16_t siz
     case 2: LZW_decompress(buf.data(), buf.size(), out); break;
     case 3: SIXPACK_decompress(buf.data(), buf.size(), size, out); break;
     }
+}
+
+int32_t pas_round(double value)
+{
+    return static_cast<int32_t>(std::nearbyint(value));
+}
+
+std::string truncate_string(std::string str)
+{
+    while (!str.empty() && (str.back() == '\0' || str.back() == ' ' || static_cast<uint8_t>(str.back()) == 255)) {
+        str.pop_back();
+    }
+    return str;
+}
+
+std::string asciiz_string(const std::string& str)
+{
+    const size_t pos = str.find('\0');
+    return pos != std::string::npos ? str.substr(0, pos) : std::string();
+}
+
+void import_hsc_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data)
+{
+    Instrument& ins = at1(songdata.instr_data, inst);
+    ins.fm_data.AM_VIB_EG_carrier = data[0];
+    ins.fm_data.AM_VIB_EG_modulator = data[1];
+    ins.fm_data.KSL_VOLUM_carrier = data[2];
+    ins.fm_data.KSL_VOLUM_modulator = data[3];
+    ins.fm_data.ATTCK_DEC_carrier = data[4];
+    ins.fm_data.ATTCK_DEC_modulator = data[5];
+    ins.fm_data.SUSTN_REL_carrier = data[6];
+    ins.fm_data.SUSTN_REL_modulator = data[7];
+    ins.fm_data.FEEDBACK_FM = data[8] & 0x0f;
+    ins.fm_data.WAVEFORM_carrier = data[9] & 3;
+    ins.fm_data.WAVEFORM_modulator = data[10] & 3;
+    ins.panning = 0;
+    ins.fine_tune = static_cast<int8_t>(data[11] >> 4);
+}
+
+void import_standard_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data)
+{
+    Instrument& ins = at1(songdata.instr_data, inst);
+    ins.fm_data.AM_VIB_EG_modulator = data[0];
+    ins.fm_data.AM_VIB_EG_carrier = data[1];
+    ins.fm_data.KSL_VOLUM_modulator = data[2];
+    ins.fm_data.KSL_VOLUM_carrier = data[3];
+    ins.fm_data.ATTCK_DEC_modulator = data[4];
+    ins.fm_data.ATTCK_DEC_carrier = data[5];
+    ins.fm_data.SUSTN_REL_modulator = data[6];
+    ins.fm_data.SUSTN_REL_carrier = data[7];
+    ins.fm_data.WAVEFORM_modulator = data[8] & 3;
+    ins.fm_data.WAVEFORM_carrier = data[9] & 3;
+    ins.fm_data.FEEDBACK_FM = data[10] & 0x0f;
+    ins.panning = 0;
+    ins.fine_tune = 0;
 }
 
 void normalize_names(FixedSongData& songdata)
