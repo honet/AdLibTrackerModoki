@@ -4,12 +4,29 @@
 #include "framework.h"
 #include "AdLibTrackerModoki.h"
 
+#include <memory>
+
+#include "core/opl/Opl3Emulator.h"
+#include "core/opl/OplTestSynth.h"
+#include "platform/audio/DirectSoundOutput.h"
+
 #define MAX_LOADSTRING 100
 
 // グローバル変数:
 HINSTANCE hInst;                                // 現在のインターフェイス
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
+
+// サウンド:
+// 実機ドライバに差し替える場合は g_oplDevice を実機実装にし、g_audioOutput は不要 (nullptr) になる。
+std::unique_ptr<Opl3Emulator> g_oplEmulator;
+std::unique_ptr<IAudioOutput> g_audioOutput;
+IOplDevice* g_oplDevice = nullptr;
+std::unique_ptr<OplTestSynth> g_testSynth;
+
+static bool InitSound(HWND hWnd);
+static void ShutdownSound();
+static int KeyToNote(WPARAM vk);
 
 // このコード モジュールに含まれる関数の宣言を転送します:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -105,6 +122,11 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
       return FALSE;
    }
 
+   if (!InitSound(hWnd))
+   {
+      MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
+   }
+
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
 
@@ -145,12 +167,52 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            BeginPaint(hWnd, &ps);
-            // TODO: 描画コードをここに追加してください...
+            HDC hdc = BeginPaint(hWnd, &ps);
+            // 暫定表示 (フェーズ3 で Direct2D のテキスト画面に置き換える)
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            InflateRect(&rc, -16, -16);
+            WCHAR text[512];
+            swprintf_s(text,
+                L"OPL3 テスト\n\n"
+                L"デバイス: %s\n"
+                L"出力: %s\n\n"
+                L"Z S X D C V G B H N J M , : C-4 ～\n"
+                L"Q 2 W 3 E R 5 T 6 Y 7 U I : C-5 ～",
+                g_oplDevice ? g_oplDevice->name() : L"(なし)",
+                g_audioOutput ? L"DirectSound" : L"(なし)");
+            DrawTextW(hdc, text, -1, &rc, DT_LEFT | DT_TOP);
             EndPaint(hWnd, &ps);
         }
         break;
+    case WM_KEYDOWN:
+        if (g_testSynth && !(lParam & (1 << 30)))
+        {
+            const int note = KeyToNote(wParam);
+            if (note >= 0)
+            {
+                g_testSynth->noteOn(note);
+            }
+        }
+        break;
+    case WM_KEYUP:
+        if (g_testSynth)
+        {
+            const int note = KeyToNote(wParam);
+            if (note >= 0)
+            {
+                g_testSynth->noteOff(note);
+            }
+        }
+        break;
+    case WM_KILLFOCUS:
+        if (g_testSynth)
+        {
+            g_testSynth->allNotesOff();
+        }
+        break;
     case WM_DESTROY:
+        ShutdownSound();
         PostQuitMessage(0);
         break;
     default:
@@ -177,4 +239,61 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     }
     return (INT_PTR)FALSE;
+}
+
+//
+//  関数: InitSound(HWND)
+//
+//  目的: OPL3 デバイスと音声出力を初期化します。
+//
+static bool InitSound(HWND hWnd)
+{
+    g_oplEmulator = std::make_unique<Opl3Emulator>(Opl3Emulator::NativeSampleRate);
+    g_oplDevice = g_oplEmulator.get();
+
+    g_testSynth = std::make_unique<OplTestSynth>(*g_oplDevice);
+    g_testSynth->init();
+
+    g_audioOutput = std::make_unique<DirectSoundOutput>(hWnd, Opl3Emulator::NativeSampleRate);
+    if (!g_audioOutput->start(g_oplEmulator.get()))
+    {
+        g_audioOutput.reset();
+        return false;
+    }
+    return true;
+}
+
+static void ShutdownSound()
+{
+    if (g_audioOutput)
+    {
+        g_audioOutput->stop();
+        g_audioOutput.reset();
+    }
+    g_testSynth.reset();
+    g_oplDevice = nullptr;
+    g_oplEmulator.reset();
+}
+
+// テスト演奏用のキー配置 (AT2 と同じトラッカー式配列)。戻り値は MIDI ノート番号、対象外は -1
+static int KeyToNote(WPARAM vk)
+{
+    static const struct { WPARAM vk; int note; } table[] = {
+        // C-4 (60) ～
+        { 'Z', 60 }, { 'S', 61 }, { 'X', 62 }, { 'D', 63 }, { 'C', 64 }, { 'V', 65 },
+        { 'G', 66 }, { 'B', 67 }, { 'H', 68 }, { 'N', 69 }, { 'J', 70 }, { 'M', 71 },
+        { VK_OEM_COMMA, 72 },
+        // C-5 (72) ～
+        { 'Q', 72 }, { '2', 73 }, { 'W', 74 }, { '3', 75 }, { 'E', 76 }, { 'R', 77 },
+        { '5', 78 }, { 'T', 79 }, { '6', 80 }, { 'Y', 81 }, { '7', 82 }, { 'U', 83 },
+        { 'I', 84 },
+    };
+    for (const auto& e : table)
+    {
+        if (e.vk == vk)
+        {
+            return e.note;
+        }
+    }
+    return -1;
 }

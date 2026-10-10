@@ -13,6 +13,27 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="core">
+      <UniqueIdentifier>{e500c517-b21a-4caf-a736-2680e1068391}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\audio">
+      <UniqueIdentifier>{5d13e879-0edf-4218-9e43-02e404334b00}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="core\opl">
+      <UniqueIdentifier>{09b706c5-47fb-4f2b-9a48-2e48712f79e3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="platform">
+      <UniqueIdentifier>{f3630c58-e268-44dd-99d7-6a70e3eac9f9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="platform\audio">
+      <UniqueIdentifier>{7bdd75d7-f97d-477e-b2fc-6340e2b89a72}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="third_party">
+      <UniqueIdentifier>{89c8023e-c993-46c3-9519-96d7af349542}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="third_party\nukedopl3">
+      <UniqueIdentifier>{e5e5f6d6-a654-4ad1-be7e-afd6fd87cfbc}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -27,10 +48,43 @@
     <ClInclude Include="AdLibTrackerModoki.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="core\audio\IAudioOutput.h">
+      <Filter>core\audio</Filter>
+    </ClInclude>
+    <ClInclude Include="core\audio\IAudioSource.h">
+      <Filter>core\audio</Filter>
+    </ClInclude>
+    <ClInclude Include="core\opl\IOplDevice.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
+    <ClInclude Include="core\opl\Opl3Emulator.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
+    <ClInclude Include="core\opl\OplTestSynth.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\audio\DirectSoundOutput.h">
+      <Filter>platform\audio</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\nukedopl3\opl3.h">
+      <Filter>third_party\nukedopl3</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AdLibTrackerModoki.cpp">
       <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="core\opl\Opl3Emulator.cpp">
+      <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="core\opl\OplTestSynth.cpp">
+      <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="platform\audio\DirectSoundOutput.cpp">
+      <Filter>platform\audio</Filter>
+    </ClCompile>
+    <ClCompile Include="third_party\nukedopl3\opl3.c">
+      <Filter>third_party\nukedopl3</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
