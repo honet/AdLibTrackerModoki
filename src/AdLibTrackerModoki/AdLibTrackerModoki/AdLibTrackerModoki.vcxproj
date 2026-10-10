@@ -74,7 +74,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -93,7 +93,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -110,7 +110,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -129,7 +129,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -144,6 +144,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AdLibTrackerModoki.h" />
+    <ClInclude Include="app\Sound.h" />
+    <ClInclude Include="platform\System.h" />
+    <ClInclude Include="platform\input\Keyboard.h" />
+    <ClInclude Include="platform\video\Direct2DRenderer.h" />
+    <ClInclude Include="ui\Font8x16.h" />
+    <ClInclude Include="ui\TxtScrIO.h" />
+    <ClInclude Include="ui\TestScreen.h" />
     <ClInclude Include="core\song\SongData.h" />
     <ClInclude Include="core\song\Song.h" />
     <ClInclude Include="core\song\EffectDefs.h" />
@@ -164,6 +171,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AdLibTrackerModoki.cpp" />
+    <ClCompile Include="app\Sound.cpp" />
+    <ClCompile Include="platform\System.cpp" />
+    <ClCompile Include="platform\input\Keyboard.cpp" />
+    <ClCompile Include="platform\video\Direct2DRenderer.cpp" />
+    <ClCompile Include="ui\Font8x16.cpp" />
+    <ClCompile Include="ui\TxtScrIO.cpp" />
+    <ClCompile Include="ui\TestScreen.cpp" />
     <ClCompile Include="core\song\Song.cpp" />
     <ClCompile Include="core\song\Depack.cpp" />
     <ClCompile Include="core\song\A2mLoader.cpp" />

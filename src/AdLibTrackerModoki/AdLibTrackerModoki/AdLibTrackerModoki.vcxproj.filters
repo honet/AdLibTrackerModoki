@@ -40,6 +40,18 @@
     <Filter Include="core\player">
       <UniqueIdentifier>{39c58233-05ca-498f-840e-6faa77887148}</UniqueIdentifier>
     </Filter>
+    <Filter Include="app">
+      <UniqueIdentifier>{3dfc0b4f-f0bb-4210-b3a2-a5636ac969c1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="platform\input">
+      <UniqueIdentifier>{201c1be5-a501-40da-82fd-b726c2530080}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="platform\video">
+      <UniqueIdentifier>{fc15923e-28b4-4199-b8da-1658800191d0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ui">
+      <UniqueIdentifier>{1df6a93f-fcc3-4f24-9824-3e91a143de03}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -53,6 +65,27 @@
     </ClInclude>
     <ClInclude Include="AdLibTrackerModoki.h">
       <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="app\Sound.h">
+      <Filter>app</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\System.h">
+      <Filter>platform</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\input\Keyboard.h">
+      <Filter>platform\input</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\video\Direct2DRenderer.h">
+      <Filter>platform\video</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\Font8x16.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\TxtScrIO.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\TestScreen.h">
+      <Filter>ui</Filter>
     </ClInclude>
     <ClInclude Include="core\song\SongData.h">
       <Filter>core\song</Filter>
@@ -100,6 +133,27 @@
   <ItemGroup>
     <ClCompile Include="AdLibTrackerModoki.cpp">
       <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="app\Sound.cpp">
+      <Filter>app</Filter>
+    </ClCompile>
+    <ClCompile Include="platform\System.cpp">
+      <Filter>platform</Filter>
+    </ClCompile>
+    <ClCompile Include="platform\input\Keyboard.cpp">
+      <Filter>platform\input</Filter>
+    </ClCompile>
+    <ClCompile Include="platform\video\Direct2DRenderer.cpp">
+      <Filter>platform\video</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\Font8x16.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\TxtScrIO.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\TestScreen.cpp">
+      <Filter>ui</Filter>
     </ClCompile>
     <ClCompile Include="core\song\Song.cpp">
       <Filter>core\song</Filter>

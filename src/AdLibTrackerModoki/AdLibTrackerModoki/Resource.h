@@ -12,11 +12,6 @@
 #define IDI_ADLIBTRACKERMODOKI			107
 #define IDI_SMALL				108
 #define IDC_ADLIBTRACKERMODOKI			109
-#define IDM_OPEN				32771
-#define IDM_PLAY				32772
-#define IDM_STOP				32773
-#define IDM_EMU_AT2				32774
-#define IDM_EMU_NUKED			32775
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1

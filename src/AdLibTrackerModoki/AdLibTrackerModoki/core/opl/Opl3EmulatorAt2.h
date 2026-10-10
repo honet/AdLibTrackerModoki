@@ -25,7 +25,7 @@ public:
 
     void reset() override;
     void writeReg(uint16_t reg, uint8_t value) override;
-    const wchar_t* name() const override { return L"AT2 OPL3 エミュレータ"; }
+    const wchar_t* name() const override { return L"AT2 OPL3 Emulator"; }
 
     void render(int16_t* buffer, uint32_t frames) override;
 

@@ -4,19 +4,14 @@
 #include "framework.h"
 #include "AdLibTrackerModoki.h"
 
-#include <commdlg.h>
 #include <shellapi.h>
 
-#include <memory>
-#include <mutex>
 #include <string>
 
-#include "core/opl/Opl3Emulator.h"
-#include "core/opl/Opl3EmulatorAt2.h"
-#include "core/player/A2Player.h"
-#include "core/player/SampleClockDriver.h"
-#include "core/song/A2mLoader.h"
-#include "platform/audio/DirectSoundOutput.h"
+#include "app/Sound.h"
+#include "platform/System.h"
+#include "platform/input/Keyboard.h"
+#include "ui/TestScreen.h"
 
 #define MAX_LOADSTRING 100
 
@@ -24,37 +19,11 @@
 HINSTANCE hInst;                                // 現在のインターフェイス
 WCHAR szTitle[MAX_LOADSTRING];                  // タイトル バーのテキスト
 WCHAR szWindowClass[MAX_LOADSTRING];            // メイン ウィンドウ クラス名
-HWND g_hWnd = nullptr;                          // メイン ウィンドウ
-
-// サウンド:
-// 実機ドライバに差し替える場合は g_oplDevice を実機実装にし、SampleClockDriver の代わりに
-// タイマーで A2Player::timerTick() を呼ぶ駆動部を使う (g_audioOutput は不要になる)。
-enum class EmulatorType { At2, Nuked };
-EmulatorType g_emulatorType = EmulatorType::At2;   // 既定は本家と同じ出音の AT2 互換エミュレータ
-std::unique_ptr<Opl3EmulatorAt2> g_emulatorAt2;
-std::unique_ptr<Opl3Emulator> g_emulatorNuked;
-IAudioSource* g_oplSource = nullptr;
-std::unique_ptr<A2Player> g_player;
-std::unique_ptr<SampleClockDriver> g_driver;
-std::unique_ptr<IAudioOutput> g_audioOutput;
-IOplDevice* g_oplDevice = nullptr;
-
-constexpr UINT_PTR IDT_REFRESH = 1;
-
-static bool InitSound(HWND hWnd);
-static void ShutdownSound();
-static void SwitchEmulator(HWND hWnd, EmulatorType type);
-static void OpenSong(HWND hWnd, const std::wstring& path);
-static void ShowOpenDialog(HWND hWnd);
-static void PlaySong();
-static void StopSong();
-static void PaintStatus(HWND hWnd, HDC hdc);
 
 // このコード モジュールに含まれる関数の宣言を転送します:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
-BOOL                InitInstance(HINSTANCE, int);
+HWND                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -63,44 +32,59 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
 
+    // 高 DPI 環境でもドットを等倍で扱えるようにする
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     // グローバル文字列を初期化する
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_ADLIBTRACKERMODOKI, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
 
     // アプリケーション初期化の実行:
-    if (!InitInstance (hInstance, nCmdShow))
+    HWND hWnd = InitInstance(hInstance, nCmdShow);
+    if (!hWnd)
     {
         return FALSE;
     }
 
-    // コマンドラインで渡された曲を開いて再生する
+    if (!sys_init(hWnd))
+    {
+        MessageBoxW(hWnd, L"画面の初期化に失敗しました。", szTitle, MB_OK | MB_ICONERROR);
+        DestroyWindow(hWnd);
+        return FALSE;
+    }
+    sys_set_screen_mode(0);
+    ShowWindow(hWnd, nCmdShow);
+    UpdateWindow(hWnd);
+
+    if (!sound_init(hWnd))
+    {
+        MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
+    }
+
+    // コマンドラインで渡された曲を開く
     if (lpCmdLine && *lpCmdLine)
     {
         int argc = 0;
         LPWSTR* argv = CommandLineToArgvW(lpCmdLine, &argc);
         if (argv && argc > 0)
         {
-            OpenSong(g_hWnd, argv[0]);
+            sys_add_dropped_file(argv[0]);
         }
         LocalFree(argv);
     }
 
-    HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_ADLIBTRACKERMODOKI));
+    // メインループ (本家と同じく、キー入力待ちの中でメッセージ処理と描画を行う)
+    run_test_screen(hWnd);
 
-    MSG msg;
-
-    // メイン メッセージ ループ:
-    while (GetMessage(&msg, nullptr, 0, 0))
+    sound_done();
+    sys_done();
+    if (IsWindow(hWnd))
     {
-        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
+        DestroyWindow(hWnd);
     }
-
-    return (int) msg.wParam;
+    sys_pump_messages();
+    return 0;
 }
 
 
@@ -123,8 +107,8 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.hInstance      = hInstance;
     wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ADLIBTRACKERMODOKI));
     wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_ADLIBTRACKERMODOKI);
+    wcex.hbrBackground  = nullptr;
+    wcex.lpszMenuName   = nullptr;
     wcex.lpszClassName  = szWindowClass;
     wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
@@ -139,33 +123,21 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //   コメント:
 //
 //        この関数で、グローバル変数でインスタンス ハンドルを保存し、
-//        メイン プログラム ウィンドウを作成および表示します。
+//        メイン プログラム ウィンドウを作成します (表示は画面の初期化後に行う)。
 //
-BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
+HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
+   UNREFERENCED_PARAMETER(nCmdShow);
    hInst = hInstance; // グローバル変数にインスタンス ハンドルを格納する
 
    HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
-   if (!hWnd)
+   if (hWnd)
    {
-      return FALSE;
+      DragAcceptFiles(hWnd, TRUE);
    }
-   g_hWnd = hWnd;
-
-   if (!InitSound(hWnd))
-   {
-      MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
-   }
-
-   DragAcceptFiles(hWnd, TRUE);
-   SetTimer(hWnd, IDT_REFRESH, 50, nullptr);
-
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
-
-   return TRUE;
+   return hWnd;
 }
 
 //
@@ -173,59 +145,47 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //
 //  目的: メイン ウィンドウのメッセージを処理します。
 //
-//  WM_COMMAND  - アプリケーション メニューの処理
-//  WM_PAINT    - メイン ウィンドウを描画する
-//  WM_DESTROY  - 中止メッセージを表示して戻る
-//
+//  キー入力はキーボードモジュールへ渡し、Windows 既定の Alt / F10 によるメニュー操作は行わない。
+//  ウィンドウを閉じる操作は終了要求としてメインループへ伝える。
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
-    case WM_COMMAND:
+    case WM_KEYDOWN:
+    case WM_KEYUP:
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+        keyboard_handle_message(message, wParam, lParam);
+        if (message == WM_SYSKEYDOWN && wParam == VK_F4)
         {
-            int wmId = LOWORD(wParam);
-            // 選択されたメニューの解析:
-            switch (wmId)
-            {
-            case IDM_OPEN:
-                ShowOpenDialog(hWnd);
-                break;
-            case IDM_PLAY:
-                PlaySong();
-                break;
-            case IDM_STOP:
-                StopSong();
-                break;
-            case IDM_EMU_AT2:
-                SwitchEmulator(hWnd, EmulatorType::At2);
-                break;
-            case IDM_EMU_NUKED:
-                SwitchEmulator(hWnd, EmulatorType::Nuked);
-                break;
-            case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_EXIT:
-                DestroyWindow(hWnd);
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
+            // Alt+F4 は通常どおりウィンドウを閉じる
+            return DefWindowProc(hWnd, message, wParam, lParam);
         }
         break;
+    case WM_SYSCHAR:
+        break;
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xfff0) == SC_KEYMENU)
+        {
+            break;
+        }
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    case WM_KILLFOCUS:
+        // フォーカスを失っている間に離されたキーが押されたままにならないようにする
+        keyboard_init();
+        break;
+    case WM_SIZE:
+        sys_on_resize();
+        break;
+    case WM_ERASEBKGND:
+        return 1;
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            PaintStatus(hWnd, hdc);
+            BeginPaint(hWnd, &ps);
+            sys_on_paint();
             EndPaint(hWnd, &ps);
-        }
-        break;
-    case WM_TIMER:
-        if (wParam == IDT_REFRESH)
-        {
-            InvalidateRect(hWnd, nullptr, TRUE);
         }
         break;
     case WM_DROPFILES:
@@ -234,243 +194,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             WCHAR path[MAX_PATH];
             if (DragQueryFileW(hDrop, 0, path, MAX_PATH) > 0)
             {
-                OpenSong(hWnd, path);
+                sys_add_dropped_file(path);
             }
             DragFinish(hDrop);
         }
         break;
+    case WM_CLOSE:
+        _force_program_quit = true;
+        break;
     case WM_DESTROY:
-        KillTimer(hWnd, IDT_REFRESH);
-        ShutdownSound();
         PostQuitMessage(0);
         break;
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
-}
-
-// バージョン情報ボックスのメッセージ ハンドラーです。
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    UNREFERENCED_PARAMETER(lParam);
-    switch (message)
-    {
-    case WM_INITDIALOG:
-        return (INT_PTR)TRUE;
-
-    case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-        {
-            EndDialog(hDlg, LOWORD(wParam));
-            return (INT_PTR)TRUE;
-        }
-        break;
-    }
-    return (INT_PTR)FALSE;
-}
-
-//
-//  関数: InitSound(HWND)
-//
-//  目的: OPL3 デバイス・プレイヤー・音声出力を初期化します。
-//
-static bool InitSound(HWND hWnd)
-{
-    const uint32_t sampleRate = Opl3EmulatorAt2::NativeSampleRate;
-    if (g_emulatorType == EmulatorType::At2)
-    {
-        g_emulatorAt2 = std::make_unique<Opl3EmulatorAt2>();
-        g_oplDevice = g_emulatorAt2.get();
-        g_oplSource = g_emulatorAt2.get();
-    }
-    else
-    {
-        g_emulatorNuked = std::make_unique<Opl3Emulator>(sampleRate);
-        g_oplDevice = g_emulatorNuked.get();
-        g_oplSource = g_emulatorNuked.get();
-    }
-
-    g_player = std::make_unique<A2Player>(*g_oplDevice);
-    g_driver = std::make_unique<SampleClockDriver>(*g_player, *g_oplSource, sampleRate);
-
-    const HMENU menu = GetMenu(hWnd);
-    CheckMenuRadioItem(menu, IDM_EMU_AT2, IDM_EMU_NUKED,
-                       g_emulatorType == EmulatorType::At2 ? IDM_EMU_AT2 : IDM_EMU_NUKED, MF_BYCOMMAND);
-
-    g_audioOutput = std::make_unique<DirectSoundOutput>(hWnd, sampleRate);
-    if (!g_audioOutput->start(g_driver.get()))
-    {
-        g_audioOutput.reset();
-        return false;
-    }
-    return true;
-}
-
-static void ShutdownSound()
-{
-    if (g_audioOutput)
-    {
-        g_audioOutput->stop();
-        g_audioOutput.reset();
-    }
-    g_driver.reset();
-    g_player.reset();
-    g_oplDevice = nullptr;
-    g_oplSource = nullptr;
-    g_emulatorAt2.reset();
-    g_emulatorNuked.reset();
-}
-
-//
-//  関数: SwitchEmulator(HWND, EmulatorType)
-//
-//  目的: OPL3 エミュレータを切り替えます。読み込み済みの曲は引き継ぎます (再生は停止)。
-//
-static void SwitchEmulator(HWND hWnd, EmulatorType type)
-{
-    if (type == g_emulatorType)
-    {
-        return;
-    }
-
-    std::shared_ptr<Song> song;
-    if (g_player)
-    {
-        std::lock_guard lock(g_driver->mutex());
-        song = g_player->song();
-    }
-
-    ShutdownSound();
-    g_emulatorType = type;
-    if (!InitSound(hWnd))
-    {
-        MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
-    }
-
-    if (g_player && song)
-    {
-        std::lock_guard lock(g_driver->mutex());
-        g_player->setSong(song);
-    }
-    InvalidateRect(hWnd, nullptr, TRUE);
-}
-
-//
-//  関数: OpenSong(HWND, const std::wstring&)
-//
-//  目的: 曲を読み込んで再生を開始します。
-//
-static void OpenSong(HWND hWnd, const std::wstring& path)
-{
-    if (!g_player)
-    {
-        return;
-    }
-
-    auto song = std::make_shared<Song>();
-    std::wstring error;
-    if (!LoadA2m(path, *song, Song::Defaults(), error))
-    {
-        MessageBoxW(hWnd, (L"読み込みに失敗しました。\n" + path + L"\n" + error).c_str(), szTitle, MB_OK | MB_ICONWARNING);
-        return;
-    }
-
-    {
-        std::lock_guard lock(g_driver->mutex());
-        g_player->setSong(song);
-        g_player->startPlaying();
-    }
-
-    SetWindowTextW(hWnd, (song->title + L" - " + szTitle).c_str());
-    InvalidateRect(hWnd, nullptr, TRUE);
-}
-
-static void ShowOpenDialog(HWND hWnd)
-{
-    WCHAR path[MAX_PATH] = L"";
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hWnd;
-    ofn.lpstrFilter = L"AdLib Tracker II モジュール (*.a2m)\0*.a2m\0すべてのファイル (*.*)\0*.*\0";
-    ofn.lpstrFile = path;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-    if (GetOpenFileNameW(&ofn))
-    {
-        OpenSong(hWnd, path);
-    }
-}
-
-static void PlaySong()
-{
-    if (g_player)
-    {
-        std::lock_guard lock(g_driver->mutex());
-        g_player->startPlaying();
-    }
-}
-
-static void StopSong()
-{
-    if (g_player)
-    {
-        std::lock_guard lock(g_driver->mutex());
-        g_player->stopPlaying();
-    }
-}
-
-// CP437 の Pascal 文字列を表示用に変換する
-static std::wstring ToWide(const std::string& s)
-{
-    if (s.empty())
-    {
-        return std::wstring();
-    }
-    const int n = MultiByteToWideChar(437, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    std::wstring w(n, L'\0');
-    MultiByteToWideChar(437, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
-    return w;
-}
-
-//
-//  関数: PaintStatus(HWND, HDC)
-//
-//  目的: 再生状態を表示します (フェーズ3 で Direct2D のテキスト画面に置き換える暫定表示)。
-//
-static void PaintStatus(HWND hWnd, HDC hdc)
-{
-    RECT rc;
-    GetClientRect(hWnd, &rc);
-    InflateRect(&rc, -16, -16);
-
-    std::wstring text = L"ファイルを開く: Ctrl+O またはドラッグ&ドロップ   再生: F5   停止: F8\n\n";
-    if (g_player)
-    {
-        std::lock_guard lock(g_driver->mutex());
-        const auto& song = g_player->song();
-        const FixedSongData& sd = song->data();
-        const wchar_t* status = L"停止中";
-        if (g_player->playStatus() == A2Player::PlayStatus::Playing) status = L"再生中";
-        else if (g_player->playStatus() == A2Player::PlayStatus::Paused) status = L"一時停止中";
-
-        const int seconds = static_cast<int>(g_player->timePlaying());
-        WCHAR buf[512];
-        swprintf_s(buf,
-            L"ファイル: %s\n曲名: %s\n作者: %s\n\n"
-            L"状態: %s\n"
-            L"オーダー: %02X   パターン: %02X   行: %02X\n"
-            L"スピード: %u   テンポ: %u   トラック数: %u\n"
-            L"時間: %02d:%02d\n",
-            song->title.c_str(), ToWide(sd.songname.str()).c_str(), ToWide(sd.composer.str()).c_str(),
-            status,
-            g_player->currentOrder(), g_player->currentPattern(), g_player->currentLine(),
-            g_player->currentSpeed(), g_player->currentTempo(), sd.nm_tracks,
-            seconds / 60, seconds % 60);
-        text += buf;
-    }
-    text += std::wstring(L"\n音源: ") + (g_oplDevice ? g_oplDevice->name() : L"(なし)") +
-            L"   出力: " + (g_audioOutput ? L"DirectSound" : L"(なし)");
-
-    DrawTextW(hdc, text.c_str(), -1, &rc, DT_LEFT | DT_TOP);
 }
