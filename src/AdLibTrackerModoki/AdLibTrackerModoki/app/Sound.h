@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include <windows.h>
@@ -36,7 +37,7 @@ struct PlayerStatus
 bool sound_init(HWND hwnd);
 void sound_done();
 
-// 曲を読み込んで再生を開始する
+// 曲を読み込む (本家と同じく再生は停止状態になる)
 bool sound_open_song(const std::wstring& path, std::wstring& error);
 void sound_play();
 void sound_stop();
@@ -46,3 +47,10 @@ bool sound_set_emulator(EmulatorType type);
 EmulatorType sound_emulator();
 
 PlayerStatus sound_status();
+
+class A2Player;
+
+// プレイヤーと、オーディオスレッドとの排他用ロック (プレイヤーを触る間は必ずロックを取ること)
+// エミュレータを切り替えるとプレイヤーは作り直されるため、ポインタを保持し続けないこと。
+A2Player* sound_player();
+std::mutex& sound_mutex();

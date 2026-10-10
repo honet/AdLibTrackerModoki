@@ -41,7 +41,15 @@ public:
     uint8_t currentTempo() const { return tempo; }
     double timePlaying() const { return time_playing; }
 
-private:
+    // 指定位置まで早送りしてから再生する (adt2unit.pas の calibrate_player から画面処理を除いたもの)
+    void calibrate_player(uint8_t order, uint8_t line, bool line_dependent);
+
+    // 音量バー表示用の値をリセットする (adt2extn.pas の nul_volume_bars)
+    void nul_volume_bars();
+
+    // 以下の状態と手続きは Pascal 版ではユニットのグローバル変数・手続きであり、
+    // 画面処理 (ステータス表示・パターン表示など) から直接参照されるため公開している。
+    // オーディオスレッドと排他して使うこと。
     struct VibTremState
     {
         uint8_t pos;
@@ -242,6 +250,7 @@ private:
     bool skip_macro_flag = false;
     bool force_macro_keyon = false;
     bool no_sync_playing = false;
+    bool calibrating = false;
 
     uint8_t vibtrem_speed_factor = 1;
     uint8_t vibtrem_table_size = 32;

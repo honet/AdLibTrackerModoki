@@ -79,7 +79,6 @@ bool sound_open_song(const std::wstring& path, std::wstring& error)
 
     std::lock_guard lock(g_driver->mutex());
     g_player->setSong(song);
-    g_player->startPlaying();
     return true;
 }
 
@@ -121,6 +120,17 @@ bool sound_set_emulator(EmulatorType type)
 EmulatorType sound_emulator()
 {
     return g_emulatorType;
+}
+
+A2Player* sound_player()
+{
+    return g_player.get();
+}
+
+std::mutex& sound_mutex()
+{
+    static std::mutex dummy;
+    return g_driver ? g_driver->mutex() : dummy;
 }
 
 PlayerStatus sound_status()

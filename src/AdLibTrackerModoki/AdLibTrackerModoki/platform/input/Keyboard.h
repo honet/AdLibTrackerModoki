@@ -98,15 +98,32 @@ constexpr uint8_t SC_RALT = 0xFD;
 constexpr uint8_t SC_LCTRL = 0xFE;
 constexpr uint8_t SC_RCTRL = 0xFF;
 
-// キーコード (typcons1.inc の一部)
-constexpr uint16_t kF1 = 0x3b00, kF2 = 0x3c00, kF3 = 0x3d00, kF4 = 0x3e00, kF5 = 0x3f00;
-constexpr uint16_t kF6 = 0x4000, kF7 = 0x4100, kF8 = 0x4200, kF9 = 0x4300, kF10 = 0x4400;
-constexpr uint16_t kESC = 0x011b, kENTER = 0x1c0d, kTAB = 0x0f09, kSPACE = 0x3920, kBkSPC = 0x0e08;
-constexpr uint16_t kUP = 0x4800, kDOWN = 0x5000, kLEFT = 0x4b00, kRIGHT = 0x4d00;
-constexpr uint16_t kPgUP = 0x4900, kPgDOWN = 0x5100, kHOME = 0x4700, kEND = 0x4f00;
-constexpr uint16_t kINSERT = 0x5200, kDELETE = 0x5300;
-constexpr uint16_t kAlt1 = 0x7800, kAlt2 = 0x7900, kAlt3 = 0x7a00;
-constexpr uint16_t kCtrlO = 0x180f, kCtrlE = 0x1205;
+// キーコード (typcons1.inc)
+constexpr uint16_t kF1 = 0x3b00, kF2 = 0x3c00, kShF2 = 0x5500, kF3 = 0x3d00, kShF3 = 0x5600, kF4 = 0x3e00;
+constexpr uint16_t kF5 = 0x3f00, kShF5 = 0x5800, kF6 = 0x4000, kShF6 = 0x5900, kF7 = 0x4100, kF8 = 0x4200;
+constexpr uint16_t kShF8 = 0x5b00, kF9 = 0x4300, kShF9 = 0x5c00, kF10 = 0x4400;
+constexpr uint16_t kAltF2 = 0x6900, kAltF5 = 0x6c00, kAltF6 = 0x6d00, kAltF8 = 0x6f00, kAltF9 = 0x7000;
+constexpr uint16_t kCtrlF2 = 0x5f00, kCtrlF3 = 0x6000, kCtrlF8 = 0x6500, kCtrlF9 = 0x6600;
+constexpr uint16_t kLEFT = 0x4b00, kShLEFT = 0x4b34, kCtLEFT = 0x7300, kRIGHT = 0x4d00, kShRGHT = 0x4d36, kCtRGHT = 0x7400;
+constexpr uint16_t kUP = 0x4800, kNPUp = 0x4838, kDOWN = 0x5000, kNPDown = 0x5032;
+constexpr uint16_t kPgUP = 0x4900, kNPPgUP = 0x4939, kCtPgUP = 0x8400, kPgDOWN = 0x5100, kNPPgDN = 0x5133, kCtPgDN = 0x7600;
+constexpr uint16_t kHOME = 0x4700, kNPHOME = 0x4737, kCtHOME = 0x7700, kEND = 0x4f00, kNPEND = 0x4f31, kCtEND = 0x7500;
+constexpr uint16_t kINSERT = 0x5200, kNPins = 0x5230, kDELETE = 0x5300, kNPdel = 0x532e;
+constexpr uint16_t kENTER = 0x1c0d, kCtENTR = 0x1c0a, kESC = 0x011b, kTAB = 0x0f09, kShTAB = 0x0f00;
+constexpr uint16_t kSPACE = 0x3920, kBkSPC = 0x0e08, kCtBkSp = 0x0e7f, kWeird = 0x2960;
+constexpr uint16_t kNPastr = 0x372a, kNPplus = 0x4e2b, kNPmins = 0x4a2d, kAstrsk = 0x092a, kCHastr = 0x092a;
+constexpr uint16_t kCHplus = 0x0d2b, kCHmins = 0x0c2d, kCHlbrk = 0x1a5b, kCHrbrk = 0x1b5d, kSlash = 0x352f, kSlashR = 0x2b5c;
+constexpr uint16_t kAlt1 = 0x7800, kAlt2 = 0x7900, kAlt3 = 0x7a00, kAlt4 = 0x7b00, kAlt5 = 0x7c00;
+constexpr uint16_t kAlt6 = 0x7d00, kAlt7 = 0x7e00, kAlt8 = 0x7f00, kAlt9 = 0x8000, kAlt0 = 0x8100;
+constexpr uint16_t kAltA = 0x1e00, kAltB = 0x3000, kAltC = 0x2e00, kAltD = 0x2000, kAltE = 0x1200, kAltF = 0x2100;
+constexpr uint16_t kAltG = 0x2200, kAltH = 0x2300, kAltI = 0x1700, kAltK = 0x2500, kAltL = 0x2600, kAltM = 0x3200;
+constexpr uint16_t kAltN = 0x3100, kAltO = 0x1800, kAltP = 0x1900, kAltQ = 0x1000, kAltR = 0x1300, kAltS = 0x1f00;
+constexpr uint16_t kAltT = 0x1400, kAltU = 0x1600, kAltV = 0x2f00, kAltW = 0x1100, kAltX = 0x2d00, kAltZ = 0x2c00;
+constexpr uint16_t kCtrlA = 0x1e01, kCtrlB = 0x3002, kCtrlC = 0x2e03, kCtrlD = 0x2004, kCtrlE = 0x1205, kCtrlF = 0x2106;
+constexpr uint16_t kCtrlG = 0x2207, kCtrlH = 0x2308, kCtrlI = 0x1709, kCtrlK = 0x250b, kCtrlL = 0x260c, kCtrlM = 0x320d;
+constexpr uint16_t kCtrlN = 0x310e, kCtrlO = 0x180f, kCtrlP = 0x1910, kCtrlQ = 0x1011, kCtrlR = 0x1312, kCtrlS = 0x1f13;
+constexpr uint16_t kCtrlT = 0x1414, kCtrlV = 0x2f16, kCtrlW = 0x1117, kCtrlX = 0x2d18, kCtrlY = 0x1519, kCtrlZ = 0x2c1a;
+constexpr uint16_t kCtLbr = 0x1a1b, kCtRbr = 0x1b1d;
 
 // ウィンドウプロシージャから呼ぶ。キーメッセージを処理した場合は true を返す。
 bool keyboard_handle_message(unsigned int message, uintptr_t wParam, intptr_t lParam);

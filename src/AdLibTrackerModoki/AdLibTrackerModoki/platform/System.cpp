@@ -29,6 +29,8 @@ namespace
     bool g_force_redraw = true;
     DWORD g_frame_start = 0;
     std::deque<std::wstring> g_dropped_files;
+    std::deque<int> g_commands;
+    void (*g_realtime_proc)() = nullptr;
 
     // adt2sys.pas の draw_SDL_screen
     void draw_SDL_screen(uint8_t columns, uint8_t rows, uint32_t scr_res)
@@ -118,7 +120,7 @@ namespace
         int scale = 1;
         for (int s = 4; s >= 1; --s) {
             RECT rc = { 0, 0, SCREEN_RES_x * s, SCREEN_RES_y * s };
-            AdjustWindowRectExForDpi(&rc, style, FALSE, ex_style, dpi);
+            AdjustWindowRectExForDpi(&rc, style, GetMenu(g_hwnd) != nullptr, ex_style, dpi);
             if (rc.right - rc.left <= work_w && rc.bottom - rc.top <= work_h) {
                 scale = s;
                 break;
@@ -126,7 +128,7 @@ namespace
         }
 
         RECT rc = { 0, 0, SCREEN_RES_x * scale, SCREEN_RES_y * scale };
-        AdjustWindowRectExForDpi(&rc, style, FALSE, ex_style, dpi);
+        AdjustWindowRectExForDpi(&rc, style, GetMenu(g_hwnd) != nullptr, ex_style, dpi);
         const int w = rc.right - rc.left;
         const int h = rc.bottom - rc.top;
         const int x = mi.rcWork.left + std::max<LONG>(0, (work_w - w) / 2);
@@ -170,6 +172,7 @@ void vid_SetRGBPalette(const Rgb* palette)
 
 void draw_screen()
 {
+    if (g_realtime_proc) g_realtime_proc();
     process_screen_scroll();
     draw_screen_proc();
 
@@ -218,4 +221,27 @@ bool sys_take_dropped_file(std::wstring& path)
     path = g_dropped_files.front();
     g_dropped_files.pop_front();
     return true;
+}
+
+void sys_add_command(int id)
+{
+    g_commands.push_back(id);
+}
+
+bool sys_take_command(int& id)
+{
+    if (g_commands.empty()) return false;
+    id = g_commands.front();
+    g_commands.pop_front();
+    return true;
+}
+
+bool sys_has_pending_events()
+{
+    return !g_commands.empty() || !g_dropped_files.empty();
+}
+
+void sys_set_realtime_proc(void (*proc)())
+{
+    g_realtime_proc = proc;
 }

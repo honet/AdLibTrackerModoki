@@ -150,7 +150,9 @@
     <ClInclude Include="platform\video\Direct2DRenderer.h" />
     <ClInclude Include="ui\Font8x16.h" />
     <ClInclude Include="ui\TxtScrIO.h" />
-    <ClInclude Include="ui\TestScreen.h" />
+    <ClInclude Include="ui\MainScreen.h" />
+    <ClInclude Include="ui\MainScreenData.h" />
+    <ClInclude Include="ui\StringIO.h" />
     <ClInclude Include="core\song\SongData.h" />
     <ClInclude Include="core\song\Song.h" />
     <ClInclude Include="core\song\EffectDefs.h" />
@@ -177,7 +179,9 @@
     <ClCompile Include="platform\video\Direct2DRenderer.cpp" />
     <ClCompile Include="ui\Font8x16.cpp" />
     <ClCompile Include="ui\TxtScrIO.cpp" />
-    <ClCompile Include="ui\TestScreen.cpp" />
+    <ClCompile Include="ui\MainScreen.cpp" />
+    <ClCompile Include="ui\MainScreenData.cpp" />
+    <ClCompile Include="ui\StringIO.cpp" />
     <ClCompile Include="core\song\Song.cpp" />
     <ClCompile Include="core\song\Depack.cpp" />
     <ClCompile Include="core\song\A2mLoader.cpp" />

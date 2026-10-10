@@ -11,7 +11,8 @@
 #include "app/Sound.h"
 #include "platform/System.h"
 #include "platform/input/Keyboard.h"
-#include "ui/TestScreen.h"
+#include "ui/MainScreen.h"
+#include "ui/TxtScrIO.h"
 
 #define MAX_LOADSTRING 100
 
@@ -75,7 +76,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
 
     // メインループ (本家と同じく、キー入力待ちの中でメッセージ処理と描画を行う)
-    run_test_screen(hWnd);
+    at2::run_main_screen(hWnd);
 
     sound_done();
     sys_done();
@@ -108,7 +109,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ADLIBTRACKERMODOKI));
     wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
     wcex.hbrBackground  = nullptr;
-    wcex.lpszMenuName   = nullptr;
+    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_ADLIBTRACKERMODOKI);
     wcex.lpszClassName  = szWindowClass;
     wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
@@ -145,7 +146,8 @@ HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
 //
 //  目的: メイン ウィンドウのメッセージを処理します。
 //
-//  キー入力はキーボードモジュールへ渡し、Windows 既定の Alt / F10 によるメニュー操作は行わない。
+//  キー入力はキーボードモジュールへ渡し、Windows 既定の Alt / F10 によるメニュー操作は行わない
+//  (メニューはマウスでのみ操作する)。メニューのコマンドはメインループへ渡す。
 //  ウィンドウを閉じる操作は終了要求としてメインループへ伝える。
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -164,6 +166,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_SYSCHAR:
+        break;
+    case WM_COMMAND:
+        sys_add_command(LOWORD(wParam));
+        break;
+    case WM_INITMENUPOPUP:
+        {
+            HMENU hMenu = reinterpret_cast<HMENU>(wParam);
+            CheckMenuRadioItem(hMenu, IDM_VIEW_MODE0, IDM_VIEW_MODE2,
+                               IDM_VIEW_MODE0 + at2::program_screen_mode, MF_BYCOMMAND);
+            CheckMenuRadioItem(hMenu, IDM_EMU_AT2, IDM_EMU_NUKED,
+                               sound_emulator() == EmulatorType::At2 ? IDM_EMU_AT2 : IDM_EMU_NUKED, MF_BYCOMMAND);
+        }
+        break;
+    case WM_EXITMENULOOP:
+        // メニュー操作中に離されたキーが押されたままにならないようにする
+        keyboard_init();
         break;
     case WM_SYSCOMMAND:
         if ((wParam & 0xfff0) == SC_KEYMENU)

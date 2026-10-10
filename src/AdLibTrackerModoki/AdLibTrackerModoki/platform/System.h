@@ -35,3 +35,11 @@ void sys_add_dropped_file(const std::wstring& path);
 
 // ドロップされたファイルを 1 つ取り出す
 bool sys_take_dropped_file(std::wstring& path);
+
+// メニューのコマンドを積む / 1 つ取り出す
+void sys_add_command(int id);
+bool sys_take_command(int& id);
+bool sys_has_pending_events();   // 未処理のコマンドまたはドロップされたファイルがある
+
+// draw_screen の先頭で毎フレーム呼ぶ処理を登録する (オリジナルの realtime_gfx_poll_proc)
+void sys_set_realtime_proc(void (*proc)());

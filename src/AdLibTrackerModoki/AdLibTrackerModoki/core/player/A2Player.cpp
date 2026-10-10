@@ -2677,6 +2677,126 @@ void A2Player::stopPlaying()
     update_timer(songdata().tempo);
 }
 
+void A2Player::nul_volume_bars()
+{
+    for (int chan = 1; chan <= 20; ++chan) {
+        decay_bar[chan] = {};
+        volum_bar[chan] = {};
+    }
+}
+
+void A2Player::calibrate_player(uint8_t order, uint8_t line, bool line_dependent)
+{
+    if (calc_following_order(0) == -1) return;
+    calibrating = true;
+    const bool backup_replay_forbidden = replay_forbidden;
+    const PlayStatus backup_play_status = play_status;
+
+    nul_volume_bars();
+    bool temp_channel_flag[NCH];
+    std::copy(std::begin(channel_flag), std::end(channel_flag), std::begin(temp_channel_flag));
+    std::fill(std::begin(channel_flag), std::end(channel_flag), false);
+
+    const bool old_debugging = debugging;
+    const bool old_repeat_pattern = repeat_pattern;
+    debugging = false;
+    repeat_pattern = false;
+
+    if (play_status == PlayStatus::Stopped || order < current_order || order == calc_following_order(0)) {
+        if (!no_sync_playing) {
+            stopPlaying();
+        } else {
+            stopPlaying();
+            no_sync_playing = true;
+        }
+
+        init_player();
+        speed = songdata().speed;
+        macro_speedup = songdata().macro_speedup;
+        update_timer(songdata().tempo);
+        current_order = static_cast<uint8_t>(calc_following_order(0));
+        current_pattern = order_at(current_order);
+        current_line = 0;
+        pattern_break = false;
+        pattern_delay = false;
+        last_order = 0;
+        next_line = 0;
+        song_timer = 0;
+        timer_temp = 0;
+        song_timer_tenths = 0;
+        time_playing = 0;
+        ticklooper = 0;
+        macro_ticklooper = 0;
+        ticks = 0;
+        tick0 = 0;
+    }
+
+    uint8_t previous_order = current_order;
+    uint8_t previous_line = current_line;
+    int jump_count = 0;
+    int loop_count = 0;
+    replay_forbidden = true;
+    seek_pattern_break = false;
+
+    if (!no_sync_playing) {
+        while (current_line != line || current_order != order) {
+            if (!(previous_order == current_order && previous_line >= current_line &&
+                  !(pattern_break && (next_line & 0xf0) == pattern_loop_flag))) {
+                loop_count = 0;
+            } else if (++loop_count > 15) {
+                break;
+            }
+
+            if (current_order == order && current_line >= line && !line_dependent) break;
+
+            previous_order = current_order;
+            previous_line = current_line;
+            fast_forward = true;
+
+            poll_proc();
+            if (macro_ticklooper == 0) macro_poll_proc();
+
+            fast_forward = false;
+            ++ticklooper;
+            if (ticklooper >= IRQ_freq / std::max<int32_t>(tempo, 1)) ticklooper = 0;
+
+            ++macro_ticklooper;
+            if (macro_ticklooper >= IRQ_freq / std::max<int32_t>(tempo * macro_speedup, 1)) macro_ticklooper = 0;
+
+            if (previous_order != current_order) {
+                if (++jump_count > 0x7f) break;
+            }
+
+            if (seek_pattern_break) {
+                if (current_order > order || (current_order == order && (current_line != 0 || line == 0))) break;
+                seek_pattern_break = false;
+            }
+        }
+    } else {
+        startPlaying();
+        current_order = order;
+        current_pattern = order_at(order);
+        current_line = line;
+    }
+
+    fade_out_volume = 63;
+    std::copy(std::begin(temp_channel_flag), std::end(temp_channel_flag), std::begin(channel_flag));
+
+    for (int temp = 1; temp <= 20; ++temp) reset_chan_data(static_cast<uint8_t>(temp));
+    if (backup_play_status != PlayStatus::Stopped) {
+        replay_forbidden = backup_replay_forbidden;
+        play_status = backup_play_status;
+    } else {
+        replay_forbidden = false;
+        play_status = PlayStatus::Playing;
+    }
+
+    debugging = old_debugging;
+    repeat_pattern = old_repeat_pattern;
+    synchronize_song_timer();
+    calibrating = false;
+}
+
 void A2Player::timerTick()
 {
     const int32_t IRQ_freq_val = !rewind ? IRQ_freq : IRQ_freq * 20;

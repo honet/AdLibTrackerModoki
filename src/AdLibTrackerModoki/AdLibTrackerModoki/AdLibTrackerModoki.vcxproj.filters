@@ -84,7 +84,13 @@
     <ClInclude Include="ui\TxtScrIO.h">
       <Filter>ui</Filter>
     </ClInclude>
-    <ClInclude Include="ui\TestScreen.h">
+    <ClInclude Include="ui\MainScreen.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\MainScreenData.h">
+      <Filter>ui</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\StringIO.h">
       <Filter>ui</Filter>
     </ClInclude>
     <ClInclude Include="core\song\SongData.h">
@@ -152,7 +158,13 @@
     <ClCompile Include="ui\TxtScrIO.cpp">
       <Filter>ui</Filter>
     </ClCompile>
-    <ClCompile Include="ui\TestScreen.cpp">
+    <ClCompile Include="ui\MainScreen.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\MainScreenData.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\StringIO.cpp">
       <Filter>ui</Filter>
     </ClCompile>
     <ClCompile Include="core\song\Song.cpp">
