@@ -87,6 +87,9 @@
     <ClInclude Include="core\opl\Opl3Emulator.h">
       <Filter>core\opl</Filter>
     </ClInclude>
+    <ClInclude Include="core\opl\Opl3EmulatorAt2.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
     <ClInclude Include="platform\audio\DirectSoundOutput.h">
       <Filter>platform\audio</Filter>
     </ClInclude>
@@ -114,6 +117,9 @@
       <Filter>core\player</Filter>
     </ClCompile>
     <ClCompile Include="core\opl\Opl3Emulator.cpp">
+      <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="core\opl\Opl3EmulatorAt2.cpp">
       <Filter>core\opl</Filter>
     </ClCompile>
     <ClCompile Include="platform\audio\DirectSoundOutput.cpp">

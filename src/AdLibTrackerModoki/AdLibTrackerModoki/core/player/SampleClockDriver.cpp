@@ -4,9 +4,9 @@
 #include <cmath>
 
 #include "A2Player.h"
-#include "../opl/Opl3Emulator.h"
+#include "../audio/IAudioSource.h"
 
-SampleClockDriver::SampleClockDriver(A2Player& player, Opl3Emulator& opl, uint32_t sampleRate, uint32_t timerSlowdown)
+SampleClockDriver::SampleClockDriver(A2Player& player, IAudioSource& opl, uint32_t sampleRate, uint32_t timerSlowdown)
     : player_(player)
     , opl_(opl)
     , sampleRate_(sampleRate)

@@ -12,6 +12,7 @@
 #include <string>
 
 #include "core/opl/Opl3Emulator.h"
+#include "core/opl/Opl3EmulatorAt2.h"
 #include "core/player/A2Player.h"
 #include "core/player/SampleClockDriver.h"
 #include "core/song/A2mLoader.h"
@@ -28,7 +29,11 @@ HWND g_hWnd = nullptr;                          // メイン ウィンドウ
 // サウンド:
 // 実機ドライバに差し替える場合は g_oplDevice を実機実装にし、SampleClockDriver の代わりに
 // タイマーで A2Player::timerTick() を呼ぶ駆動部を使う (g_audioOutput は不要になる)。
-std::unique_ptr<Opl3Emulator> g_oplEmulator;
+enum class EmulatorType { At2, Nuked };
+EmulatorType g_emulatorType = EmulatorType::At2;   // 既定は本家と同じ出音の AT2 互換エミュレータ
+std::unique_ptr<Opl3EmulatorAt2> g_emulatorAt2;
+std::unique_ptr<Opl3Emulator> g_emulatorNuked;
+IAudioSource* g_oplSource = nullptr;
 std::unique_ptr<A2Player> g_player;
 std::unique_ptr<SampleClockDriver> g_driver;
 std::unique_ptr<IAudioOutput> g_audioOutput;
@@ -38,6 +43,7 @@ constexpr UINT_PTR IDT_REFRESH = 1;
 
 static bool InitSound(HWND hWnd);
 static void ShutdownSound();
+static void SwitchEmulator(HWND hWnd, EmulatorType type);
 static void OpenSong(HWND hWnd, const std::wstring& path);
 static void ShowOpenDialog(HWND hWnd);
 static void PlaySong();
@@ -191,6 +197,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             case IDM_STOP:
                 StopSong();
                 break;
+            case IDM_EMU_AT2:
+                SwitchEmulator(hWnd, EmulatorType::At2);
+                break;
+            case IDM_EMU_NUKED:
+                SwitchEmulator(hWnd, EmulatorType::Nuked);
+                break;
             case IDM_ABOUT:
                 DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
                 break;
@@ -265,12 +277,26 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 //
 static bool InitSound(HWND hWnd)
 {
-    const uint32_t sampleRate = Opl3Emulator::NativeSampleRate;
-    g_oplEmulator = std::make_unique<Opl3Emulator>(sampleRate);
-    g_oplDevice = g_oplEmulator.get();
+    const uint32_t sampleRate = Opl3EmulatorAt2::NativeSampleRate;
+    if (g_emulatorType == EmulatorType::At2)
+    {
+        g_emulatorAt2 = std::make_unique<Opl3EmulatorAt2>();
+        g_oplDevice = g_emulatorAt2.get();
+        g_oplSource = g_emulatorAt2.get();
+    }
+    else
+    {
+        g_emulatorNuked = std::make_unique<Opl3Emulator>(sampleRate);
+        g_oplDevice = g_emulatorNuked.get();
+        g_oplSource = g_emulatorNuked.get();
+    }
 
     g_player = std::make_unique<A2Player>(*g_oplDevice);
-    g_driver = std::make_unique<SampleClockDriver>(*g_player, *g_oplEmulator, sampleRate);
+    g_driver = std::make_unique<SampleClockDriver>(*g_player, *g_oplSource, sampleRate);
+
+    const HMENU menu = GetMenu(hWnd);
+    CheckMenuRadioItem(menu, IDM_EMU_AT2, IDM_EMU_NUKED,
+                       g_emulatorType == EmulatorType::At2 ? IDM_EMU_AT2 : IDM_EMU_NUKED, MF_BYCOMMAND);
 
     g_audioOutput = std::make_unique<DirectSoundOutput>(hWnd, sampleRate);
     if (!g_audioOutput->start(g_driver.get()))
@@ -291,7 +317,43 @@ static void ShutdownSound()
     g_driver.reset();
     g_player.reset();
     g_oplDevice = nullptr;
-    g_oplEmulator.reset();
+    g_oplSource = nullptr;
+    g_emulatorAt2.reset();
+    g_emulatorNuked.reset();
+}
+
+//
+//  関数: SwitchEmulator(HWND, EmulatorType)
+//
+//  目的: OPL3 エミュレータを切り替えます。読み込み済みの曲は引き継ぎます (再生は停止)。
+//
+static void SwitchEmulator(HWND hWnd, EmulatorType type)
+{
+    if (type == g_emulatorType)
+    {
+        return;
+    }
+
+    std::shared_ptr<Song> song;
+    if (g_player)
+    {
+        std::lock_guard lock(g_driver->mutex());
+        song = g_player->song();
+    }
+
+    ShutdownSound();
+    g_emulatorType = type;
+    if (!InitSound(hWnd))
+    {
+        MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
+    }
+
+    if (g_player && song)
+    {
+        std::lock_guard lock(g_driver->mutex());
+        g_player->setSong(song);
+    }
+    InvalidateRect(hWnd, nullptr, TRUE);
 }
 
 //
