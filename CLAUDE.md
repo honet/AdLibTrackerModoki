@@ -1,7 +1,8 @@
-# AdLibTrackerSharp
+# AdLibTrackerModoki
 
 ## プロジェクト概要
-- このプロジェクトはpascalで書かれた AdLibTrackerII のクローンをC#で作成するプロジェクトです。
+- このプロジェクトはpascalで書かれた AdLibTrackerII のクローンをC++で作成するプロジェクトです。
+- 現在は空プロジェクトを作成しただけの状態
 
 ## アーキテクチャ
 - オリジナル版はローレベルレイヤにSDLが用いられていますが、本クローン版では下記を使用することにします
@@ -23,7 +24,8 @@ original/
   AdlibTracker2_SDL_2.4.25/     オリジナル版のAdLibTrackerIIのバイナリとサンプルの演奏データ
   at2_sourcecode_06-02-2026/    オリジナル版のpascalで書かれたAdLibTrackerIIのソースコード
 
-src/                            本クローン版のソースプロジェクト置き場
-  
+src/                            
+  AdlibTrackerModoki/           本クローン版のプロジェクト
+
 
 
