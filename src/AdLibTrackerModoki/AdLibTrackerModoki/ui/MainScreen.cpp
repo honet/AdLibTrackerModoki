@@ -42,7 +42,7 @@ constexpr int isPlaying = 0;
 constexpr int isPaused = 1;
 constexpr int isStopped = 2;
 
-const std::string _ADT2_TITLE_STRING_ = "/\xB4" "DLiB TR/\xB4" "CK3R ][";
+const std::string _ADT2_TITLE_STRING_ = "/\xB4" "DLiB TR/\xB4" "CK3R ][ Modoki";
 
 HWND g_hwnd = nullptr;
 
