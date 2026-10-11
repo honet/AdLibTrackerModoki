@@ -153,6 +153,7 @@
     <ClInclude Include="ui\MainScreen.h" />
     <ClInclude Include="ui\MainScreenData.h" />
     <ClInclude Include="ui\StringIO.h" />
+    <ClInclude Include="ui\DialogIO.h" />
     <ClInclude Include="core\song\SongData.h" />
     <ClInclude Include="core\song\Song.h" />
     <ClInclude Include="core\song\EffectDefs.h" />
@@ -162,6 +163,8 @@
     <ClInclude Include="core\song\A2pLoader.h" />
     <ClInclude Include="core\song\LoaderCommon.h" />
     <ClInclude Include="core\song\ModuleLoader.h" />
+    <ClInclude Include="core\song\Pack.h" />
+    <ClInclude Include="core\song\ModuleSaver.h" />
     <ClInclude Include="core\song\TrackerLoaders.h" />
     <ClInclude Include="core\player\A2Player.h" />
     <ClInclude Include="core\player\SampleClockDriver.h" />
@@ -187,6 +190,7 @@
     <ClCompile Include="ui\MainScreen.cpp" />
     <ClCompile Include="ui\MainScreenData.cpp" />
     <ClCompile Include="ui\StringIO.cpp" />
+    <ClCompile Include="ui\DialogIO.cpp" />
     <ClCompile Include="core\song\Song.cpp" />
     <ClCompile Include="core\song\Depack.cpp" />
     <ClCompile Include="core\song\A2mLoader.cpp" />
@@ -194,6 +198,8 @@
     <ClCompile Include="core\song\A2pLoader.cpp" />
     <ClCompile Include="core\song\LoaderCommon.cpp" />
     <ClCompile Include="core\song\ModuleLoader.cpp" />
+    <ClCompile Include="core\song\Pack.cpp" />
+    <ClCompile Include="core\song\ModuleSaver.cpp" />
     <ClCompile Include="core\song\AmdLoader.cpp" />
     <ClCompile Include="core\song\CffLoader.cpp" />
     <ClCompile Include="core\song\DfmLoader.cpp" />

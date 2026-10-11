@@ -86,4 +86,18 @@ std::string Copy(const std::string& str, int index, int count)
     return str.substr(index - 1, count);
 }
 
+std::string DietStr(std::string str, uint8_t size)
+{
+    if (str.size() <= size) return str;
+    // オリジナルは size < 3 のとき終わらないため、ここでは size 文字に切るだけにする
+    if (size < 3) return str.substr(0, size);
+
+    const size_t pos = size / 2;   // Delete / Insert の位置 (1 始まり)
+    do {
+        str.erase(pos - 1, 1);
+    } while (str.size() + 3 != size);
+    str.insert(pos - 1, "...");
+    return str;
+}
+
 } // namespace at2

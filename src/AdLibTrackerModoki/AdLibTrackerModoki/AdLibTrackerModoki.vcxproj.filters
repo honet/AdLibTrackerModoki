@@ -93,6 +93,9 @@
     <ClInclude Include="ui\StringIO.h">
       <Filter>ui</Filter>
     </ClInclude>
+    <ClInclude Include="ui\DialogIO.h">
+      <Filter>ui</Filter>
+    </ClInclude>
     <ClInclude Include="core\song\SongData.h">
       <Filter>core\song</Filter>
     </ClInclude>
@@ -118,6 +121,12 @@
       <Filter>core\song</Filter>
     </ClInclude>
     <ClInclude Include="core\song\ModuleLoader.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
+    <ClInclude Include="core\song\Pack.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
+    <ClInclude Include="core\song\ModuleSaver.h">
       <Filter>core\song</Filter>
     </ClInclude>
     <ClInclude Include="core\song\TrackerLoaders.h">
@@ -182,6 +191,9 @@
     <ClCompile Include="ui\StringIO.cpp">
       <Filter>ui</Filter>
     </ClCompile>
+    <ClCompile Include="ui\DialogIO.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
     <ClCompile Include="core\song\Song.cpp">
       <Filter>core\song</Filter>
     </ClCompile>
@@ -201,6 +213,12 @@
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\song\ModuleLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\Pack.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\ModuleSaver.cpp">
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\song\AmdLoader.cpp">

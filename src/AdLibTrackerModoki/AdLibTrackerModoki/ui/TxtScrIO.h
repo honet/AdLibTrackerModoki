@@ -46,6 +46,10 @@ extern tSCREEN_MEM_PTR centered_frame_vdest;
 extern tSCREEN_MEM_PTR move_to_screen_data;
 extern uint8_t move_to_screen_area[5];   // [1..4]
 
+// ダイアログを閉じるときに背景を描き直す処理 (オリジナルの move_to_screen_routine。メイン画面が move2screen を設定する)
+// 未設定なら保存しておいた画面をそのまま戻す。
+extern void (*move_to_screen_routine)();
+
 // 画面モード: 0 = 90x40 (720x480、30 行表示でスクロール), 1 = 120x50 (960x800), 2 = 180x60 (1440x960)
 extern uint8_t program_screen_mode;
 

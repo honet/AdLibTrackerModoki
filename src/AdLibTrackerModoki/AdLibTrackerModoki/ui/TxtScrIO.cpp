@@ -33,6 +33,7 @@ tSCREEN_MEM_PTR screen_ptr = text_screen_shadow;
 tSCREEN_MEM_PTR centered_frame_vdest = text_screen_shadow;
 tSCREEN_MEM_PTR move_to_screen_data = nullptr;
 uint8_t move_to_screen_area[5] = {};
+void (*move_to_screen_routine)() = nullptr;
 
 uint8_t program_screen_mode = 0;
 

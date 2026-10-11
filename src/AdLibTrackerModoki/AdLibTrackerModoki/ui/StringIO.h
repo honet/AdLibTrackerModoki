@@ -17,6 +17,9 @@ std::string FlipStr(const std::string& str);
 std::string iCASE(const std::string& str);
 std::string Bpm2str(double bpm);
 
+// 長い文字列の中ほどを "..." に置き換えて size 文字に縮める
+std::string DietStr(std::string str, uint8_t size);
+
 // Pascal の Copy(str, index, count) (index は 1 始まり)
 std::string Copy(const std::string& str, int index, int count);
 

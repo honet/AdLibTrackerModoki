@@ -5,9 +5,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <cwchar>
+#include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 
+#include "DialogIO.h"
 #include "MainScreenData.h"
 #include "StringIO.h"
 #include "TxtScrIO.h"
@@ -16,6 +21,7 @@
 #include "../core/player/A2Player.h"
 #include "../core/song/EffectDefs.h"
 #include "../core/song/ModuleLoader.h"
+#include "../core/song/ModuleSaver.h"
 #include "../platform/System.h"
 #include "../platform/input/Keyboard.h"
 
@@ -68,6 +74,8 @@ bool force_scrollbars = false;
 bool no_trace_pattord = false;
 bool module_archived = false;
 bool _realtime_gfx_no_update = false;
+
+std::wstring songdata_source;   // 読み込んだ (保存した) 曲のパス
 
 uint8_t current_octave = 4;
 uint8_t current_inst = 1;
@@ -1447,6 +1455,7 @@ void load_song(const std::wstring& path)
     A2Player& p = P();
     // A2P はパターンを読み込むだけなので、表示位置と曲の保存状態はそのまま
     if (!is_pattern) {
+        songdata_source = path;
         module_archived = true;
         _name_scrl_shift = 0;
         _name_scrl_shift_ctr = 1;
@@ -1476,6 +1485,447 @@ void FILE_open()
     // ダイアログ表示中に離されたキーが押されたままにならないようにする
     keyboard_init();
     if (ok) load_song(buf);
+}
+
+// ---------------------------------------------------------------------------
+// ダイアログ・進捗表示の補助 (txtscrio.pas / adt2unit.pas / adt2extn.pas)
+// ---------------------------------------------------------------------------
+
+// ダイアログを閉じるとき、背景のウィンドウを描き直してから画面へ戻す (txtscrio.pas の move2screen)
+void move2screen()
+{
+    HideCursor();
+    const tSCREEN_MEM_PTR screen_ptr_backup = screen_ptr;
+    screen_ptr = move_to_screen_data;
+    area_x1 = 0;
+    area_y1 = 0;
+    area_x2 = 0;
+    area_y2 = 0;
+    scroll_pos0 = BYTE_NULL;
+    scroll_pos1 = BYTE_NULL;
+    scroll_pos2 = BYTE_NULL;
+    scroll_pos3 = BYTE_NULL;
+    scroll_pos4 = BYTE_NULL;
+    {
+        PlayerLock lock;
+        PATTERN_ORDER_page_refresh(pattord_page);
+        PATTERN_page_refresh(pattern_page);
+        status_refresh();
+        decay_bars_refresh();
+    }
+    ScreenMemCopy(screen_ptr, screen_ptr_backup);
+    screen_ptr = screen_ptr_backup;
+    SetCursor(cursor_backup);
+}
+
+void centered_frame(uint8_t& xstart, uint8_t& ystart, uint8_t hsize, uint8_t vsize, const std::string& name,
+                    uint8_t atr1, uint8_t atr2, const std::string& border)
+{
+    xstart = B((work_maxcol - hsize) / 2);
+    ystart = B((work_maxln - vsize) / 2 + (work_maxln - vsize) % 2);
+    Frame(centered_frame_vdest, xstart, ystart, B(xstart + hsize), B(ystart + vsize), atr1, name, atr2, border);
+}
+
+constexpr uint32_t DWORD_NULL = 0xffffffff;
+
+uint8_t progress_xstart = 0, progress_ystart = 0;
+uint8_t progress_step = 0, progress_num_steps = 0;
+uint32_t progress_value = 0;
+uint8_t progress_old_value = BYTE_NULL;
+
+int pas_round(double value) { return static_cast<int>(std::nearbyint(value)); }
+
+// adt2extn.pas の show_progress (refresh_dif = 0 は 1 引数版)
+void show_progress(uint32_t value, int refresh_dif = 0)
+{
+    if (progress_num_steps == 0 || progress_value == 0) return;
+    if (value != DWORD_NULL) {
+        int progress_new_value;
+        if (progress_num_steps == 1) {
+            progress_new_value = pas_round(40.0 / progress_value * value);
+        } else {
+            progress_new_value = pas_round(40.0 / progress_num_steps * (progress_step - 1) +
+                                           40.0 / progress_num_steps / progress_value * value);
+        }
+        progress_new_value = std::min(progress_new_value, 40);   // Pascal の max
+        const bool refresh = refresh_dif == 0 ? progress_new_value != progress_old_value
+                                              : std::abs(progress_new_value - progress_old_value) >= refresh_dif ||
+                                                    progress_new_value == 40;
+        if (refresh) {
+            progress_old_value = B(progress_new_value);
+            ShowStr(screen_ptr, B(progress_xstart + 35), B(progress_ystart - 1),
+                    ExpStrL(Num2str(pas_round(100.0 / 40 * progress_new_value), 10) + "%", 5, ' '),
+                    dialog_background + dialog_hi_text);
+            ShowCStr(screen_ptr, progress_xstart, progress_ystart,
+                     "~" + ExpStrL("", B(progress_new_value), '\xDB') + "~" + ExpStrL("", B(40 - progress_new_value), '\xDB'),
+                     dialog_background + dialog_prog_bar1, dialog_background + dialog_prog_bar2);
+            draw_screen();
+        }
+    } else {
+        ShowStr(screen_ptr, B(progress_xstart + 35), B(progress_ystart - 1), ExpStrL("0%", 5, ' '),
+                dialog_background + dialog_hi_text);
+        ShowStr(screen_ptr, progress_xstart, progress_ystart, ExpStrL("", 40, '\xDB'), dialog_background + dialog_prog_bar1);
+        draw_screen();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 終了確認・NUKE (adt2extn.pas)
+// ---------------------------------------------------------------------------
+
+// 終了するなら true を返す (オリジナルは fkey を kESC にする)
+bool QUIT_request()
+{
+    if (_force_program_quit) return true;
+
+    const uint8_t temp = Dialog("...AND YOU WiLL KNOW MY NAME iS THE LORD, WHEN i LAY$"
+                                "MY VENGEANCE UPON THEE...$",
+                                "~Q~UiT$~O~OOPS$",
+                                " EZECHiEL 25:17 ", 1);
+
+    if (dl_environment.keystroke != kESC && temp == 1) {
+        _force_program_quit = true;
+        return true;
+    }
+    return false;
+}
+
+uint8_t clearpos = 1;
+
+// 4OP の楽器の名前の先頭の印を付け直す (instedit.inc の update_4op_flag_marks)
+void update_4op_flag_marks()
+{
+    FixedSongData& sd = songdata();
+    const auto check_4op_flag = [&sd](int ins) {
+        for (int idx = 1; idx <= sd.ins_4op_flags.num_4op && idx <= 128; ++idx) {
+            if (sd.ins_4op_flags.idx_4op[idx - 1] == ins) return true;
+        }
+        return false;
+    };
+    const auto is_flag_chr = [](char c) { return c == '\xAC' || c == '\xAD'; };
+
+    for (int temp = 1; temp <= 254; ++temp) {
+        if (!check_4op_flag(temp)) {
+            auto& n1 = at1(sd.instr_names, temp);
+            auto& n2 = at1(sd.instr_names, temp + 1);
+            if (is_flag_chr(n1.data[0])) n1.data[0] = ' ';
+            if (is_flag_chr(n2.data[0])) n2.data[0] = ' ';
+        }
+    }
+    for (int temp = 1; temp <= 254; ++temp) {
+        if (check_4op_flag(temp)) {
+            auto& n1 = at1(sd.instr_names, temp);
+            auto& n2 = at1(sd.instr_names, temp + 1);
+            if (n1.data[0] == ' ') n1.data[0] = '\xAC';
+            if (n2.data[0] == ' ') n2.data[0] = '\xAD';
+        }
+    }
+}
+
+// F4 / Ctrl+A
+// オリジナルの項目のうち、未実装の画面 (パターン一覧・マクロエディタなど) の位置の初期化は、
+// その画面の実装とともに追加する。
+void NUKE(uint8_t spos)
+{
+    const uint8_t temp1 = Dialog("SO YOU THiNK iT REALLY SUCKS, DON'T YOU?$"
+                                 "WHAT DO YOU WANT TO BE NUKED?$",
+                                 "~O~RDER$~P~ATTERNS$iNSTR [$~N~AMES$~R~EGS$~M~ACROS$]$ARP/~V~iB$~A~LL$",
+                                 " NUKE'M ", spos);
+
+    clearpos = temp1;
+    if (dl_environment.keystroke == kESC) return;
+
+    if (temp1 == 9) {
+        fade_out_playback(false);
+        PlayerLock lock;
+        A2Player& p = P();
+        stop_playing();
+        p.tempo = Song::Defaults().tempo;
+        p.speed = Song::Defaults().speed;
+        p.mark_line = 4;
+        p.IRQ_freq_shift = 0;
+        p.playback_speed_shift = 0;
+
+        // init_songdata (曲名は 'noname.' になる)
+        auto song = std::make_shared<Song>();
+        song->init(Song::Defaults());
+        p.setSong(song);
+
+        POSITIONS_reset();
+        std::fill(std::begin(p.channel_flag), std::end(p.channel_flag), true);
+        track_notes = false;
+        current_inst = 1;
+        module_archived = true;
+        return;
+    }
+
+    PlayerLock lock;
+    FixedSongData& sd = songdata();
+    switch (temp1) {
+    case 1:
+        std::memset(sd.pattern_order, 0x80, sizeof(sd.pattern_order));
+        PATTERN_ORDER_page_refresh(pattord_page);
+        break;
+
+    case 2:
+        std::memset(&P().song()->patterns(), 0, sizeof(PatternData));
+        PATTERN_ORDER_page_refresh(pattord_page);
+        PATTERN_page_refresh(pattern_page);
+        for (int temp2 = 0; temp2 <= 0x7f; ++temp2) {
+            sd.pattern_names[temp2].assign(" PAT_" + byte2hex(B(temp2)) + "  \xF7 ");
+        }
+        break;
+
+    case 4:
+        for (int temp2 = 1; temp2 <= 255; ++temp2) {
+            auto& name = at1(sd.instr_names, temp2);
+            const char mark = name.data[0];
+            std::memset(name.data + 1, 0, sizeof(name.data) - 1);
+            name.assign(std::string(1, mark) + "iNS_" + byte2hex(B(temp2)) + "\xF7 ");
+        }
+        break;
+
+    case 5:
+        std::memset(sd.instr_data, 0, sizeof(sd.instr_data));
+        std::memset(&sd.ins_4op_flags, 0, sizeof(sd.ins_4op_flags));
+        update_4op_flag_marks();
+        break;
+
+    case 6:
+        std::memset(sd.instr_macros, 0, sizeof(sd.instr_macros));
+        break;
+
+    case 8:
+        std::memset(sd.macro_table, 0, sizeof(sd.macro_table));
+        break;
+
+    default:
+        break;
+    }
+    module_archived = false;
+}
+
+// ---------------------------------------------------------------------------
+// 保存 (adt2extn.pas の FILE_save / _a2m_saver / _a2t_saver / _a2p_saver)
+// ---------------------------------------------------------------------------
+
+std::wstring replace_ext(const std::wstring& path, const wchar_t* ext)
+{
+    std::filesystem::path p(path);
+    p.replace_extension(ext);
+    return p.wstring();
+}
+
+// 保存先をコモンダイアログで選ぶ (本クローン版の独自 UI)。キャンセルされたら空を返す。
+std::wstring choose_save_path(const wchar_t* ext)
+{
+    std::wstring filter;
+    const wchar_t* title;
+    if (std::wcscmp(ext, L"a2m") == 0) {
+        filter = L"AdLib Tracker II モジュール (*.a2m)";
+        title = L"A2M 形式で保存";
+    } else if (std::wcscmp(ext, L"a2t") == 0) {
+        filter = L"AdLib Tracker II タイニーモジュール (*.a2t)";
+        title = L"A2T 形式で保存";
+    } else {
+        filter = L"AdLib Tracker II パターン (*.a2p)";
+        title = L"パターンを A2P 形式で保存";
+    }
+    filter += L'\0';
+    filter += L"*.";
+    filter += ext;
+    filter += L'\0';
+    filter += L'\0';
+
+    WCHAR buf[MAX_PATH] = L"";
+    std::wstring dir;
+    if (!songdata_source.empty()) {
+        const std::filesystem::path p(replace_ext(songdata_source, ext));
+        wcsncpy_s(buf, p.filename().c_str(), _TRUNCATE);
+        dir = p.parent_path().wstring();
+    }
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hwnd;
+    ofn.lpstrFilter = filter.c_str();
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = dir.empty() ? nullptr : dir.c_str();
+    ofn.lpstrTitle = title;
+    ofn.lpstrDefExt = ext;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    const bool ok = GetSaveFileNameW(&ofn) != FALSE;
+    // ダイアログ表示中に離されたキーが押されたままにならないようにする
+    keyboard_init();
+    if (!ok) return std::wstring();
+    // オリジナルと同じく拡張子は ext にする
+    return replace_ext(buf, ext);
+}
+
+SongSaveState song_save_state()
+{
+    const A2Player& p = P();
+    SongSaveState state;
+    state.common_flag = B(int(p.speed_update) + (int(p.lockvol) << 1) + (int(p.lockVP) << 2) + (p.tremolo_depth << 3) +
+                          (p.vibrato_depth << 4) + (int(p.panlock) << 5) + (int(p.percussion_mode) << 6) +
+                          (int(p.volume_scaling) << 7));
+    state.mark_line = p.mark_line;
+    state.tempo_finetune = p.IRQ_freq_shift;
+    return state;
+}
+
+// 保存の本体。保存中も演奏を続けられるよう、曲の複製を保存してから曲データへ書き戻す。
+void save_song(const std::wstring& path, const wchar_t* ext)
+{
+    const bool is_a2p = std::wcscmp(ext, L"a2p") == 0;
+    const bool is_a2t = std::wcscmp(ext, L"a2t") == 0;
+    const std::string saver_title = is_a2p ? " A2P SAVER " : (is_a2t ? " A2T SAVER " : " A2M SAVER ");
+
+    auto copy = std::make_unique<Song>();
+    SongSaveState state;
+    uint8_t pattern;
+    {
+        PlayerLock lock;
+        copy->data() = songdata();
+        copy->patterns() = P().song()->patterns();
+        copy->title = P().song()->title;
+        state = song_save_state();
+        pattern = pattern_patt;
+    }
+
+    uint8_t xstart = 0, ystart = 0;
+    bool window_shown = false;
+    bool new_block = true;
+    SaveProgress progress;
+    progress.begin = [&](uint8_t num_steps) {
+        ScreenMemCopy(screen_ptr, screen_backup);
+        centered_frame_vdest = screen_ptr;
+        HideCursor();
+        centered_frame(xstart, ystart, 43, 3, is_a2t ? " A2T FiLE " : " A2M FiLE ",
+                       dialog_background + dialog_border, dialog_background + dialog_title, frame_double);
+        window_shown = true;
+        progress_xstart = B(xstart + 2);
+        progress_ystart = B(ystart + 2);
+        progress_step = 1;
+        progress_num_steps = num_steps;
+        ShowCStr(screen_ptr, B(xstart + 2), B(ystart + 1),
+                 is_a2t ? "COMPRESSiNG TiNY MODULE DATA..." : "COMPRESSiNG MODULE DATA...",
+                 dialog_background + dialog_text, dialog_background + dialog_hi_text);
+        show_progress(DWORD_NULL);
+    };
+    progress.step = [&]() {
+        ++progress_step;
+        new_block = true;
+    };
+    progress.value = [&](uint32_t done, uint32_t total) {
+        // LZH_compress の開始時の progress_old_value := BYTE_NULL; progress_value := size
+        if (new_block) {
+            progress_old_value = BYTE_NULL;
+            new_block = false;
+        }
+        progress_value = total;
+        show_progress(done, 3);
+    };
+
+    const auto restore = [&]() {
+        if (!window_shown) return;
+        move_to_screen_data = screen_backup;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + 43 + 2 + 1);
+        move_to_screen_area[4] = B(ystart + 3 + 1);
+        move2screen();
+        progress_num_steps = 0;
+        progress_value = 0;
+    };
+
+    SaveResult result;
+    if (is_a2p) result = SaveA2p(path, *copy, pattern);
+    else if (is_a2t) result = SaveA2t(path, *copy, state, &progress);
+    else result = SaveA2m(path, *copy, state, &progress);
+    restore();
+
+    if (result == SaveResult::WriteError) {
+        Dialog("ERROR WRiTiNG DATA - DiSK ERROR?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
+        return;
+    }
+
+    {
+        // 保存の際に書き換えた曲データ (名前の未使用部分の 0 埋め、common_flag、bpm_data) を戻す
+        PlayerLock lock;
+        songdata() = copy->data();
+        if (result == SaveResult::Ok && !is_a2p) {
+            P().song()->title = std::filesystem::path(path).filename().wstring();
+            module_archived = true;
+        }
+    }
+
+    if (result == SaveResult::DiskFull) {
+        Dialog("ERROR WRiTiNG DATA - DiSK FULL?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
+    }
+}
+
+// F2 / Ctrl+F2 / Alt+F2 (quick: Shift+F2 は前回のファイル名でそのまま保存する)
+void FILE_save(const wchar_t* ext, bool quick)
+{
+    std::wstring path;
+    if (quick && std::wcscmp(ext, L"a2p") != 0 && !songdata_source.empty()) {
+        path = replace_ext(songdata_source, ext);
+    } else {
+        path = choose_save_path(ext);
+        if (path.empty()) return;
+    }
+    songdata_source = path;
+    save_song(path, ext);
+}
+
+// 単独パターン再生中のデバッグ (トレース中の一時停止) を解除する (ipattern.inc の pause_debugging)
+void pause_debugging()
+{
+    PlayerLock lock;
+    A2Player& p = P();
+    if (p.debugging) {
+        p.debugging = false;
+        p.replay_forbidden = true;
+        p.play_status = PlayStatus::Paused;
+        PATTERN_ORDER_page_refresh(pattord_page);
+        PATTERN_page_refresh(pattern_page);
+    }
+}
+
+// 保存・NUKE のキー (停止中・トレース中で共通)。処理したら true を返す。
+bool process_file_keys(uint16_t fkey, bool in_trace)
+{
+    switch (fkey) {
+    case kF2:
+    case kShF2:
+    case kCtrlS:
+        if (in_trace) pause_debugging();
+        FILE_save(L"a2m", fkey == kShF2);
+        if (in_trace) keyboard_reset_buffer();
+        return true;
+
+    case kCtrlF2:
+        if (in_trace) pause_debugging();
+        FILE_save(L"a2t", false);
+        if (in_trace) keyboard_reset_buffer();
+        return true;
+
+    case kAltF2:
+        // トレース中はオリジナルでも受け付けない
+        if (in_trace) return false;
+        FILE_save(L"a2p", false);
+        return true;
+
+    case kF4:
+    case kCtrlA:
+        NUKE(clearpos);
+        return true;
+
+    default:
+        return false;
+    }
 }
 
 void change_screen_mode(uint8_t mode)
@@ -1512,11 +1962,16 @@ uint16_t process_events()
     int id;
     while (sys_take_command(id)) {
         switch (id) {
+        case IDM_FILE_NEW: NUKE(9); break;   // NUKE'M の ALL を選んだ状態で開く
         case IDM_FILE_OPEN: return kF3;
+        case IDM_FILE_SAVE: return kShF2;
+        case IDM_FILE_SAVEAS: return kF2;
+        case IDM_FILE_SAVE_A2T: return kCtrlF2;
+        case IDM_FILE_SAVE_A2P: return kAltF2;
         case IDM_PLAY_PLAY: return kF5;
         case IDM_PLAY_PAUSE: return kF6;
         case IDM_PLAY_STOP: return kF7;
-        case IDM_EXIT: _force_program_quit = true; return WORD_NULL;
+        case IDM_EXIT: return kF10;
         case IDM_VIEW_MODE0: change_screen_mode(0); break;
         case IDM_VIEW_MODE1: change_screen_mode(1); break;
         case IDM_VIEW_MODE2: change_screen_mode(2); break;
@@ -1636,6 +2091,11 @@ uint16_t PATTERN_trace()
             fkey2 = key;
             if (fkey2 == kF3 || fkey2 == kShF3 || fkey2 == kCtrlL) {
                 FILE_open();
+            } else if (fkey2 == kF10) {
+                if (QUIT_request()) nope = true;
+                else fkey2 = WORD_NULL;   // やめた場合は終了扱いにしない
+            } else if (process_file_keys(fkey2, true)) {
+                // 保存・NUKE
             } else if (fkey2 == kF7) {
                 fade_out_playback(false);
                 PlayerLock lock;
@@ -1727,7 +2187,6 @@ uint16_t PATTERN_trace()
                     }
                     break;
 
-                case kF10:
                 case kENTER:
                 case kESC:
                     nope = true;
@@ -1991,7 +2450,15 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         switch (fkey) {
         case kF10:
         case kESC:
-            return fkey;
+            if (QUIT_request()) return kESC;
+            break;
+
+        case kF2: case kShF2: case kCtrlS:
+        case kCtrlF2:
+        case kAltF2:
+        case kF4: case kCtrlA:
+            process_file_keys(fkey, false);
+            break;
 
         case kF3:
         case kShF3:
@@ -2188,6 +2655,7 @@ void run_main_screen(HWND hwnd)
     }
 
     sys_set_realtime_proc(realtime_gfx_poll_proc);
+    move_to_screen_routine = move2screen;
     do_synchronize = true;
     for (;;) {
         const uint16_t fkey = PATTERN_edit(pattern_patt, pattern_page, pattern_hpos);
@@ -2205,6 +2673,7 @@ void run_main_screen(HWND hwnd)
         stop_playing();
     }
     sys_set_realtime_proc(nullptr);
+    move_to_screen_routine = nullptr;
 }
 
 } // namespace at2
