@@ -26,3 +26,10 @@ size_t LZH_decompress(const uint8_t* source, size_t sourceSize, uint32_t size, s
 
 // CRC32 (parserio.pas の Update32)
 uint32_t Update32(const void* buf, size_t size, uint32_t crc);
+
+// RDC (Ed Ross の Run-length/Dictionary Compression。MPU-401 TRAKKER の MTK で使われる)
+// 戻り値はオリジナルと同じく Word に切り詰めた出力サイズ
+size_t RDC_decompress(const uint8_t* source, size_t sourceSize, uint16_t size, std::vector<uint8_t>& dest);
+
+// CRC16 (parserio.pas の Update16)
+uint16_t Update16(const void* buf, size_t size, uint16_t crc);

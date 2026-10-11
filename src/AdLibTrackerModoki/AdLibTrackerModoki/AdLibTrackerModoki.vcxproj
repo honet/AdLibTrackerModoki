@@ -194,6 +194,12 @@
     <ClCompile Include="core\song\A2pLoader.cpp" />
     <ClCompile Include="core\song\LoaderCommon.cpp" />
     <ClCompile Include="core\song\ModuleLoader.cpp" />
+    <ClCompile Include="core\song\AmdLoader.cpp" />
+    <ClCompile Include="core\song\CffLoader.cpp" />
+    <ClCompile Include="core\song\DfmLoader.cpp" />
+    <ClCompile Include="core\song\FmkLoader.cpp" />
+    <ClCompile Include="core\song\MtkLoader.cpp" />
+    <ClCompile Include="core\song\SatLoader.cpp" />
     <ClCompile Include="core\song\HscLoader.cpp" />
     <ClCompile Include="core\song\RadLoader.cpp" />
     <ClCompile Include="core\song\S3mLoader.cpp" />

@@ -37,7 +37,7 @@ namespace
         return hi == 0x00 || hi == 0x10 || hi == 0x20 || hi == 0xa0 || hi == 0xb0 || hi == 0xc0 || hi == 0xf0;
     }
 
-    void import_hsc_event(Song& song, uint8_t patt, uint8_t line, uint8_t chan, uint16_t event)
+    void import_hsc_event(Song& song, uint8_t patt, uint8_t line, uint8_t chan, uint16_t event, bool fix_c_note_bug)
     {
         const uint8_t hi = event >> 8;
         const uint8_t lo = event & 0xff;
@@ -103,7 +103,11 @@ namespace
         return static_cast<uint16_t>(data[(word + 1) * 2] + (data[word * 2 + 1] << 8));
     }
 
-    void import_hsc_patterns(Song& song, const uint8_t* data, uint8_t patterns)
+}
+
+namespace loader
+{
+    void import_hsc_patterns(Song& song, const uint8_t* data, uint8_t patterns, bool fix_c_note_bug)
     {
         FixedSongData& songdata = song.data();
         uint8_t voice[10];
@@ -115,7 +119,7 @@ namespace
                     const uint16_t event = _hsc_event(data, temp, temp2, temp3);
                     if (event != 0) {
                         import_hsc_event(song, static_cast<uint8_t>(temp), static_cast<uint8_t>(temp2),
-                                         static_cast<uint8_t>(temp3), event);
+                                         static_cast<uint8_t>(temp3), event, fix_c_note_bug);
                     }
                 }
             }
@@ -224,7 +228,7 @@ bool LoadHsc(const std::wstring& path, Song& song, const Song::Defaults& default
     for (int temp2 = 0; temp2 <= 0x31; ++temp2) songdata.pattern_order[temp2] = hscbuf.order(temp2);
 
     const int patterns = (static_cast<int>(temp) - static_cast<int>(HSC_INSTR_SIZE + HSC_ORDER_SIZE) - 1) / 0x480;
-    import_hsc_patterns(song, patts, static_cast<uint8_t>(patterns));
+    import_hsc_patterns(song, patts, static_cast<uint8_t>(patterns), fix_c_note_bug);
 
     // specific corrections for HSC-Tracker instrument
     static const uint8_t HSC_KSL[4] = { 0, 3, 2, 1 };

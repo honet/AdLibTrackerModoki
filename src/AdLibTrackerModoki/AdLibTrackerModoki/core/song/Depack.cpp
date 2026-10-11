@@ -871,3 +871,105 @@ uint32_t Update32(const void* buf, size_t size, uint32_t crc)
     }
     return crc;
 }
+
+// ---------------------------------------------------------------------------
+// RDC (depackio.pas の RDC_decode)
+// ---------------------------------------------------------------------------
+
+size_t RDC_decompress(const uint8_t* source, size_t sourceSize, uint16_t size, std::vector<uint8_t>& dest)
+{
+    // 入力の範囲外は 0 として読む。出力より前を参照する場合 (オリジナルでは直前のメモリ) も 0 とする。
+    const auto in = [&](size_t i) -> uint8_t { return i < sourceSize ? source[i] : 0; };
+    dest.clear();
+    const auto out_at = [&](int64_t i) -> uint8_t { return (i >= 0 && i < static_cast<int64_t>(dest.size())) ? dest[static_cast<size_t>(i)] : 0; };
+    // Move(obuf_src^, obuf_idx^, count): Pascal の Move は領域が重なっても memmove と同じく
+    // コピー前の内容を写すため、まだ書かれていない部分 (出力バッファは 0 で初期化されている) は 0 になる
+    const auto copy_back = [&](uint16_t offs, uint16_t count) {
+        const int64_t src = static_cast<int64_t>(dest.size()) - offs;
+        std::vector<uint8_t> tmp(count);
+        for (uint16_t i = 0; i < count; ++i) tmp[i] = out_at(src + i);
+        dest.insert(dest.end(), tmp.begin(), tmp.end());
+    };
+
+    uint16_t ctrl_mask = 0;
+    uint16_t ctrl_bits = 0;
+    size_t ibuf_idx = 0;
+    const size_t ibuf_end = size;
+
+    while (ibuf_idx < ibuf_end) {
+        ctrl_mask = static_cast<uint16_t>(ctrl_mask >> 1);
+        if (ctrl_mask == 0) {
+            ctrl_bits = static_cast<uint16_t>(in(ibuf_idx) | (in(ibuf_idx + 1) << 8));
+            ibuf_idx += 2;
+            ctrl_mask = 0x8000;
+        }
+
+        if ((ctrl_bits & ctrl_mask) == 0) {
+            dest.push_back(in(ibuf_idx++));
+            continue;
+        }
+
+        const uint16_t command = (in(ibuf_idx) >> 4) & 15;
+        uint16_t count = in(ibuf_idx) & 15;
+        ++ibuf_idx;
+
+        switch (command) {
+        case 0:   // short RLE
+            count = static_cast<uint16_t>(count + 3);
+            dest.insert(dest.end(), count, in(ibuf_idx));
+            ++ibuf_idx;
+            break;
+        case 1:   // long RLE
+            count = static_cast<uint16_t>(count + (in(ibuf_idx) << 4));
+            ++ibuf_idx;
+            count = static_cast<uint16_t>(count + 19);
+            dest.insert(dest.end(), count, in(ibuf_idx));
+            ++ibuf_idx;
+            break;
+        case 2: {   // long pattern
+            uint16_t offs = static_cast<uint16_t>(count + 3);
+            offs = static_cast<uint16_t>(offs + (in(ibuf_idx) << 4));
+            ++ibuf_idx;
+            count = in(ibuf_idx);
+            ++ibuf_idx;
+            count = static_cast<uint16_t>(count + 16);
+            copy_back(offs, count);
+            break;
+        }
+        default: {   // short pattern
+            uint16_t offs = static_cast<uint16_t>(count + 3);
+            offs = static_cast<uint16_t>(offs + (in(ibuf_idx) << 4));
+            ++ibuf_idx;
+            copy_back(offs, command);
+            break;
+        }
+        }
+    }
+
+    return static_cast<uint16_t>(dest.size());
+}
+
+// ---------------------------------------------------------------------------
+// CRC16
+// ---------------------------------------------------------------------------
+
+uint16_t Update16(const void* buf, size_t size, uint16_t crc)
+{
+    static const auto table = [] {
+        std::array<uint16_t, 256> t{};
+        for (uint32_t index = 0; index < 256; ++index) {
+            uint16_t c = static_cast<uint16_t>(index);
+            for (int n = 0; n < 8; ++n) {
+                c = (c & 1) ? static_cast<uint16_t>((c >> 1) ^ 0xa001) : static_cast<uint16_t>(c >> 1);
+            }
+            t[index] = c;
+        }
+        return t;
+    }();
+
+    const auto* p = static_cast<const uint8_t*>(buf);
+    for (size_t i = 0; i < size; ++i) {
+        crc = static_cast<uint16_t>((crc >> 8) ^ table[(crc ^ p[i]) & 0xff]);
+    }
+    return crc;
+}

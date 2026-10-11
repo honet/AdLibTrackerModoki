@@ -203,6 +203,24 @@
     <ClCompile Include="core\song\ModuleLoader.cpp">
       <Filter>core\song</Filter>
     </ClCompile>
+    <ClCompile Include="core\song\AmdLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\CffLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\DfmLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\FmkLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\MtkLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\SatLoader.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
     <ClCompile Include="core\song\HscLoader.cpp">
       <Filter>core\song</Filter>
     </ClCompile>

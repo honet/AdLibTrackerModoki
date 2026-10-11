@@ -450,6 +450,31 @@ void import_standard_instrument(FixedSongData& songdata, uint8_t inst, const uin
     ins.fine_tune = 0;
 }
 
+bool is_4op_chan(const FixedSongData& songdata, uint8_t chan)
+{
+    const uint8_t f = songdata.flag_4op;
+    return ((f & 0x01) && (chan == 1 || chan == 2)) || ((f & 0x02) && (chan == 3 || chan == 4)) ||
+           ((f & 0x04) && (chan == 5 || chan == 6)) || ((f & 0x08) && (chan == 10 || chan == 11)) ||
+           ((f & 0x10) && (chan == 12 || chan == 13)) || ((f & 0x20) && (chan == 14 || chan == 15));
+}
+
+int32_t SensitiveScan(const uint8_t* buf, int32_t skip, int32_t size, const std::string& str)
+{
+    if (str.empty()) return 0;
+    const int32_t len = static_cast<int32_t>(str.size());
+    for (int32_t idx = skip; idx <= size - len; ++idx) {
+        if (std::memcmp(buf + idx, str.data(), str.size()) == 0) return idx;
+    }
+    return -1;
+}
+
+std::string CutStr(std::string str)
+{
+    while (!str.empty() && str.front() == ' ') str.erase(0, 1);
+    while (!str.empty() && str.back() == ' ') str.pop_back();
+    return str;
+}
+
 void normalize_names(FixedSongData& songdata)
 {
     for (int index = 1; index <= 255; ++index) {

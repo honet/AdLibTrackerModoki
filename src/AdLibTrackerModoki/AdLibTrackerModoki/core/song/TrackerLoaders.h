@@ -17,3 +17,22 @@ bool LoadRad(const std::wstring& path, Song& song, const Song::Defaults& default
 
 // Scream Tracker 3 (AdLib 楽器のみ)
 bool LoadS3m(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+
+// Amusic (AMD) / XMS-Tracker (XMS)
+bool LoadAmd(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+
+// Boomtracker (CFF)
+bool LoadCff(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+
+// Digital-FM (DFM)
+bool LoadDfm(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+
+// FM-Kingtracker (FMK)
+bool LoadFmk(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+
+// MPU-401 TRAKKER (MTK)
+bool LoadMtk(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+
+// Surprise! AdLib Tracker 1 (SAT) / 2 (SA2)
+bool LoadSat(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
+bool LoadSa2(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);

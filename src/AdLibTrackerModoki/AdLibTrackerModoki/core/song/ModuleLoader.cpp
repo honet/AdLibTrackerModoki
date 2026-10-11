@@ -62,25 +62,49 @@ namespace
     }
 }
 
+namespace
+{
+    using SongLoader = bool (*)(const std::wstring&, Song&, const Song::Defaults&, std::wstring&);
+
+    // 拡張子と読み込み処理 (本家の FILE_open と同じ対応)
+    struct SongFormat
+    {
+        const wchar_t* ext;
+        SongLoader load;
+    };
+
+    const SongFormat song_formats[] = {
+        { L"a2m", LoadA2m }, { L"a2t", LoadA2t }, { L"amd", LoadAmd }, { L"cff", LoadCff },
+        { L"dfm", LoadDfm }, { L"fmk", LoadFmk }, { L"hsc", LoadHsc }, { L"mtk", LoadMtk },
+        { L"rad", LoadRad }, { L"s3m", LoadS3m }, { L"sat", LoadSat }, { L"sa2", LoadSa2 },
+        { L"xms", LoadAmd },
+    };
+
+    SongLoader find_loader(const std::wstring& ext)
+    {
+        for (const SongFormat& f : song_formats) {
+            if (ext == f.ext) return f.load;
+        }
+        return nullptr;
+    }
+}
+
 ModuleKind GetModuleKind(const std::wstring& path)
 {
     const std::wstring ext = lower_ext(path);
-    if (ext == L"a2m" || ext == L"a2t" || ext == L"hsc" || ext == L"rad" || ext == L"s3m") return ModuleKind::Song;
+    if (find_loader(ext)) return ModuleKind::Song;
     if (ext == L"a2p") return ModuleKind::Pattern;
     return ModuleKind::Unsupported;
 }
 
 bool LoadSongModule(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error)
 {
-    const std::wstring ext = lower_ext(path);
-    bool ok = false;
-    if (ext == L"a2m") ok = LoadA2m(path, song, defaults, error);
-    else if (ext == L"a2t") ok = LoadA2t(path, song, defaults, error);
-    else if (ext == L"hsc") ok = LoadHsc(path, song, defaults, error);
-    else if (ext == L"rad") ok = LoadRad(path, song, defaults, error);
-    else if (ext == L"s3m") ok = LoadS3m(path, song, defaults, error);
-    else error = L"対応していない形式です";
-    if (!ok) return false;
+    const SongLoader load = find_loader(lower_ext(path));
+    if (!load) {
+        error = L"対応していない形式です";
+        return false;
+    }
+    if (!load(path, song, defaults, error)) return false;
 
     // load_flag = 1 の処理 (楽器名・パターン名の付け直し) と、使えない文字の置き換え
     loader::normalize_names(song.data());
@@ -98,10 +122,16 @@ bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, st
 
 const wchar_t* ModuleFileFilter()
 {
-    return L"すべての対応形式\0*.a2m;*.a2t;*.a2p;*.hsc;*.rad;*.s3m\0"
+    return L"すべての対応形式\0*.a2m;*.a2t;*.a2p;*.amd;*.cff;*.dfm;*.fmk;*.hsc;*.mtk;*.rad;*.s3m;*.sat;*.sa2;*.xms\0"
            L"AdLib Tracker II (*.a2m;*.a2t;*.a2p)\0*.a2m;*.a2t;*.a2p\0"
+           L"Amusic / XMS-Tracker (*.amd;*.xms)\0*.amd;*.xms\0"
+           L"Boomtracker (*.cff)\0*.cff\0"
+           L"Digital-FM (*.dfm)\0*.dfm\0"
+           L"FM-Kingtracker (*.fmk)\0*.fmk\0"
            L"HSC-Tracker (*.hsc)\0*.hsc\0"
+           L"MPU-401 TRAKKER (*.mtk)\0*.mtk\0"
            L"Reality AdLib Tracker (*.rad)\0*.rad\0"
            L"Scream Tracker 3 (*.s3m)\0*.s3m\0"
+           L"Surprise! AdLib Tracker (*.sat;*.sa2)\0*.sat;*.sa2\0"
            L"すべてのファイル (*.*)\0*.*\0";
 }

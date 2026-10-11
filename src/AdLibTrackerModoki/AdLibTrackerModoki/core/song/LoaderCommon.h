@@ -52,6 +52,19 @@ void import_hsc_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t*
 // 標準的な並びの楽器 (11 バイト) を取り込む (iloaders.inc の import_standard_instrument)
 void import_standard_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data);
 
+// HSC 形式のパターン (tHSC_PATTERNS) を取り込む (HscLoader.cpp。MTK でも使う)
+void import_hsc_patterns(Song& song, const uint8_t* data, uint8_t patterns, bool fix_c_note_bug);
+
+// is_4op_chan (songdata.flag_4op から判定する)
+bool is_4op_chan(const FixedSongData& songdata, uint8_t chan);
+inline bool in_4op_tracks_hi(uint8_t chan) { return chan == 1 || chan == 3 || chan == 5 || chan == 10 || chan == 12 || chan == 14; }
+
+// SensitiveScan (parserio.pas): buf[skip..size) から str を探す。見つからなければ -1
+int32_t SensitiveScan(const uint8_t* buf, int32_t skip, int32_t size, const std::string& str);
+
+// CutStr (stringio.pas): 前後の空白を取り除く
+std::string CutStr(std::string str);
+
 // BlockReadF / SeekF 相当
 class Reader
 {
