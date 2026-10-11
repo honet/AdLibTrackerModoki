@@ -2010,6 +2010,7 @@ uint16_t process_events()
         case IDM_VIEW_MODE2: change_screen_mode(2); break;
         case IDM_EMU_AT2: change_emulator(EmulatorType::At2); break;
         case IDM_EMU_NUKED: change_emulator(EmulatorType::Nuked); break;
+        case IDM_EMU_HARDWARE: change_emulator(EmulatorType::Hardware); break;
         default: break;
         }
     }

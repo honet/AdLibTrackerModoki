@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <mutex>
 
+#include "IPlayerDriver.h"
 #include "../audio/IAudioSource.h"
 
 class A2Player;
@@ -12,8 +13,8 @@ class A2Player;
 // 出力サンプル数を数え、タイマー周期ごとに A2Player::timerTick() を呼んでから
 // エミュレータで PCM を生成する。レジスタ書き込みがサンプル単位で正確な位置に入る。
 //
-// 実機 OPL3 を使う場合はこのクラスの代わりに、高精度タイマーで timerTick() を呼ぶ駆動部を用意する。
-class SampleClockDriver : public IAudioSource
+// 実機 OPL3 を使う場合はこのクラスの代わりに TimerDriver を使う。
+class SampleClockDriver : public IAudioSource, public IPlayerDriver
 {
 public:
     // timerSlowdown: タイマーの減速率 [%] (adtrack2.ini の sdl_timer_slowdown、既定 2)
@@ -22,7 +23,7 @@ public:
     void render(int16_t* buffer, uint32_t frames) override;
 
     // プレイヤーを操作するときはこのロックを取ること (オーディオスレッドと排他する)
-    std::mutex& mutex() { return mutex_; }
+    std::mutex& mutex() override { return mutex_; }
 
 private:
     uint32_t sampleFrameSize() const;

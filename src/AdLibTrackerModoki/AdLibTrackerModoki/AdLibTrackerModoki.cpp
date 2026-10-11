@@ -175,8 +175,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             HMENU hMenu = reinterpret_cast<HMENU>(wParam);
             CheckMenuRadioItem(hMenu, IDM_VIEW_MODE0, IDM_VIEW_MODE2,
                                IDM_VIEW_MODE0 + at2::program_screen_mode, MF_BYCOMMAND);
-            CheckMenuRadioItem(hMenu, IDM_EMU_AT2, IDM_EMU_NUKED,
-                               sound_emulator() == EmulatorType::At2 ? IDM_EMU_AT2 : IDM_EMU_NUKED, MF_BYCOMMAND);
+            {
+                UINT emu = IDM_EMU_AT2;
+                switch (sound_emulator()) {
+                case EmulatorType::At2: emu = IDM_EMU_AT2; break;
+                case EmulatorType::Nuked: emu = IDM_EMU_NUKED; break;
+                case EmulatorType::Hardware: emu = IDM_EMU_HARDWARE; break;
+                }
+                // 範囲はメニュー内の項目位置で決まる (AT2〜実機が並んでいること)
+                CheckMenuRadioItem(hMenu, IDM_EMU_AT2, IDM_EMU_HARDWARE, emu, MF_BYCOMMAND);
+            }
         }
         break;
     case WM_EXITMENULOOP:

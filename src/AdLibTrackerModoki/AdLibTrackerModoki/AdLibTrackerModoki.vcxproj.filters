@@ -25,6 +25,12 @@
     <Filter Include="platform">
       <UniqueIdentifier>{f3630c58-e268-44dd-99d7-6a70e3eac9f9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="platform\player">
+      <UniqueIdentifier>{f45deada-430f-417a-b6f8-eaf6b5d46e4a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="platform\hardware">
+      <UniqueIdentifier>{637f951a-1da2-4122-96da-feaf7610987e}</UniqueIdentifier>
+    </Filter>
     <Filter Include="platform\audio">
       <UniqueIdentifier>{7bdd75d7-f97d-477e-b2fc-6340e2b89a72}</UniqueIdentifier>
     </Filter>
@@ -153,6 +159,15 @@
     <ClInclude Include="core\opl\Opl3EmulatorAt2.h">
       <Filter>core\opl</Filter>
     </ClInclude>
+    <ClInclude Include="core\player\IPlayerDriver.h">
+      <Filter>core\player</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\player\TimerDriver.h">
+      <Filter>platform\player</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\hardware\Opl3Hardware.h">
+      <Filter>platform\hardware</Filter>
+    </ClInclude>
     <ClInclude Include="platform\audio\DirectSoundOutput.h">
       <Filter>platform\audio</Filter>
     </ClInclude>
@@ -259,6 +274,12 @@
     </ClCompile>
     <ClCompile Include="core\opl\Opl3EmulatorAt2.cpp">
       <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="platform\player\TimerDriver.cpp">
+      <Filter>platform\player</Filter>
+    </ClCompile>
+    <ClCompile Include="platform\hardware\Opl3Hardware.cpp">
+      <Filter>platform\hardware</Filter>
     </ClCompile>
     <ClCompile Include="platform\audio\DirectSoundOutput.cpp">
       <Filter>platform\audio</Filter>

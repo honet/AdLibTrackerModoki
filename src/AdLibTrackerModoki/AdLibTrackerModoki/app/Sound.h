@@ -8,13 +8,14 @@
 
 // サウンド全体 (OPL3 デバイス・プレイヤー・音声出力) の管理
 //
-// 実機ドライバに差し替える場合は IOplDevice を実機実装にし、SampleClockDriver の代わりに
-// タイマーで A2Player::timerTick() を呼ぶ駆動部を使う (音声出力は不要になる)。
+// エミュレータでは SampleClockDriver が出力サンプル数で A2Player::timerTick() を呼び、PCM を DirectSound で鳴らす。
+// 実機では TimerDriver が高精度タイマーで timerTick() を呼び、Opl3Hardware へ書き込む (音声出力は使わない)。
 
 enum class EmulatorType
 {
-    At2,     // 本家と同じ出音の AT2 互換エミュレータ (既定)
-    Nuked,   // Nuked OPL3 1.8
+    At2,       // 本家と同じ出音の AT2 互換エミュレータ (既定)
+    Nuked,     // Nuked OPL3 1.8
+    Hardware,  // OPL3 実機
 };
 
 struct PlayerStatus

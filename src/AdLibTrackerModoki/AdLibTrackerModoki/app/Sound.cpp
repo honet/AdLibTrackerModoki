@@ -9,6 +9,8 @@
 #include "../core/player/SampleClockDriver.h"
 #include "../core/song/ModuleLoader.h"
 #include "../platform/audio/DirectSoundOutput.h"
+#include "../platform/hardware/Opl3Hardware.h"
+#include "../platform/player/TimerDriver.h"
 
 namespace
 {
@@ -16,13 +18,17 @@ namespace
     EmulatorType g_emulatorType = EmulatorType::At2;
     std::unique_ptr<Opl3EmulatorAt2> g_emulatorAt2;
     std::unique_ptr<Opl3Emulator> g_emulatorNuked;
+    std::unique_ptr<Opl3Hardware> g_hardware;
     IOplDevice* g_oplDevice = nullptr;
     IAudioSource* g_oplSource = nullptr;
     std::unique_ptr<A2Player> g_player;
-    std::unique_ptr<SampleClockDriver> g_driver;
+    std::unique_ptr<SampleClockDriver> g_sampleDriver;
+    std::unique_ptr<TimerDriver> g_timerDriver;
+    IPlayerDriver* g_driver = nullptr;
     std::unique_ptr<IAudioOutput> g_audioOutput;
 
-    bool start_sound()
+    // エミュレータ: サンプル数で駆動し、PCM を DirectSound で鳴らす
+    bool start_emulator()
     {
         const uint32_t sampleRate = Opl3EmulatorAt2::NativeSampleRate;
         if (g_emulatorType == EmulatorType::At2) {
@@ -36,14 +42,36 @@ namespace
         }
 
         g_player = std::make_unique<A2Player>(*g_oplDevice);
-        g_driver = std::make_unique<SampleClockDriver>(*g_player, *g_oplSource, sampleRate);
+        g_sampleDriver = std::make_unique<SampleClockDriver>(*g_player, *g_oplSource, sampleRate);
+        g_driver = g_sampleDriver.get();
 
         g_audioOutput = std::make_unique<DirectSoundOutput>(g_hwnd, sampleRate);
-        if (!g_audioOutput->start(g_driver.get())) {
+        if (!g_audioOutput->start(g_sampleDriver.get())) {
             g_audioOutput.reset();
             return false;
         }
         return true;
+    }
+
+    // 実機: タイマーで駆動する (PC 側の音声出力は使わない)
+    bool start_hardware()
+    {
+        g_hardware = std::make_unique<Opl3Hardware>();
+        g_oplDevice = g_hardware.get();
+
+        g_player = std::make_unique<A2Player>(*g_oplDevice);
+        g_timerDriver = std::make_unique<TimerDriver>(*g_player, *g_oplDevice);
+        g_driver = g_timerDriver.get();
+
+        // 接続できなくてもプレイヤーは残す (曲の編集はできるようにする)
+        if (!g_hardware->open()) return false;
+        g_hardware->reset();
+        return g_timerDriver->start();
+    }
+
+    bool start_sound()
+    {
+        return g_emulatorType == EmulatorType::Hardware ? start_hardware() : start_emulator();
     }
 }
 
@@ -59,12 +87,22 @@ void sound_done()
         g_audioOutput->stop();
         g_audioOutput.reset();
     }
-    g_driver.reset();
+    if (g_timerDriver) g_timerDriver->stop();
+    if (g_hardware) {
+        // 鳴りっぱなしにならないよう、チップを初期化してから切断する
+        g_hardware->reset();
+        g_hardware->flush();
+        g_hardware->close();
+    }
+    g_driver = nullptr;
+    g_sampleDriver.reset();
+    g_timerDriver.reset();
     g_player.reset();
     g_oplDevice = nullptr;
     g_oplSource = nullptr;
     g_emulatorAt2.reset();
     g_emulatorNuked.reset();
+    g_hardware.reset();
 }
 
 bool sound_open_song(const std::wstring& path, uint8_t pattern, std::wstring& error)
