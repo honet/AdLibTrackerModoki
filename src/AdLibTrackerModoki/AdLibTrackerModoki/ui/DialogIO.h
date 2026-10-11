@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include "StringIO.h"
+
 // ダイアログ (dialogio.pas の Dialog の移植)
 //
 // 文字列は CP437 のバイト列。text / keys は '$' 区切り、keys の '~X~' はショートカットキーを表す
@@ -73,5 +75,37 @@ extern tDIALOG_ENVIRONMENT dl_environment;
 
 // 選ばれた項目の番号 (1 始まり) を返す。押されたキーは dl_environment.keystroke に入る。
 uint8_t Dialog(const std::string& text, const std::string& keys, const std::string& title, uint8_t spos);
+
+// --- 1 行の文字列入力 (stringio.pas の InputStr) ---
+
+struct tINPUT_STR_SETTING
+{
+    bool insert_mode;
+    bool replace_enabled;
+    bool append_enabled;
+    tCHARSET char_filter;
+    tCHARSET character_set;
+    tCHARSET valid_chars;
+    tCHARSET word_characters;
+    uint16_t terminate_keys[50];   // [1..50]
+};
+
+struct tINPUT_STR_ENVIRONMENT
+{
+    uint16_t keystroke;
+    uint8_t locate_pos;
+    bool insert_mode;
+    uint32_t min_num;
+    uint32_t max_num;
+    std::string cur_str;
+    void (*ext_proc)();
+};
+
+extern bool use_large_cursor;   // 挿入モードのカーソル形状 (設定値)
+extern tINPUT_STR_SETTING is_setting;
+extern tINPUT_STR_ENVIRONMENT is_environment;
+
+// s を (x, y) に ln1 文字幅で編集する (最大 ln 文字)。終了キーは is_environment.keystroke に入る。
+std::string InputStr(std::string s, uint8_t x, uint8_t y, uint8_t ln, uint8_t ln1, uint8_t atr1, uint8_t atr2);
 
 } // namespace at2

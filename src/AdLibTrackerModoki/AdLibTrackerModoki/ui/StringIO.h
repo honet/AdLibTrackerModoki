@@ -1,11 +1,27 @@
 #pragma once
 
+#include <bitset>
 #include <cstdint>
 #include <string>
 
 // 文字列補助関数 (stringio.pas の SDL 版の移植)。文字列は CP437 のバイト列。
 namespace at2
 {
+
+// Pascal の Set of Char
+using tCHARSET = std::bitset<256>;
+
+// first..last の文字を含む集合 / 文字列の各文字を含む集合
+tCHARSET CharRange(uint8_t first, uint8_t last);
+tCHARSET CharSet(const std::string& chars);
+inline bool InSet(const tCHARSET& set, char c) { return set[static_cast<uint8_t>(c)]; }
+
+extern const tCHARSET DEC_NUM_CHARSET;   // ['0'..'9']
+extern const tCHARSET HEX_NUM_CHARSET;   // ['0'..'9','a'..'f','A'..'F']
+
+int32_t Str2num(const std::string& str, uint8_t base);
+std::string FilterStr2(std::string str, const tCHARSET& chr0, char chr1);
+std::string CutStrR(std::string str, uint8_t margin);
 
 std::string byte2hex(uint8_t value);
 std::string byte2dec(uint8_t value);

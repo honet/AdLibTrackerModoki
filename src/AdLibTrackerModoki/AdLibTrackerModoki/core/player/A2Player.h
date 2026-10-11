@@ -161,6 +161,8 @@ public:
     void set_ins_volume_4op(uint8_t volume, uint8_t chan);
     void reset_ins_volume(uint8_t chan);
     void set_ins_data(uint8_t ins, uint8_t chan);
+    // 楽器データ (tFM_INST_DATA の先頭 12 バイト) を直接チャンネルに設定する (エディタのプレビュー用)
+    void load_instrument(const uint8_t* data, uint8_t chan);
     void update_modulator_adsrw(uint8_t chan);
     void update_carrier_adsrw(uint8_t chan);
     void update_fmpar(uint8_t chan);

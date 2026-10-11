@@ -32,6 +32,68 @@ std::string Num2str(int32_t num, uint8_t base)
     return result.empty() ? "0" : result;
 }
 
+tCHARSET CharRange(uint8_t first, uint8_t last)
+{
+    tCHARSET set;
+    for (int c = first; c <= last; ++c) set.set(static_cast<size_t>(c));
+    return set;
+}
+
+tCHARSET CharSet(const std::string& chars)
+{
+    tCHARSET set;
+    for (const char c : chars) set.set(static_cast<uint8_t>(c));
+    return set;
+}
+
+const tCHARSET DEC_NUM_CHARSET = CharRange('0', '9');
+const tCHARSET HEX_NUM_CHARSET = CharRange('0', '9') | CharRange('a', 'f') | CharRange('A', 'F');
+
+int32_t Str2num(const std::string& str, uint8_t base)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    int32_t value = 0;
+    if (base == 2 || base == 10 || base == 16) {
+        const size_t len = str.size();
+        for (size_t index = 1; index <= len; ++index) {
+            char digit = str[index - 1];
+            if (digit >= 'a' && digit <= 'z') digit = static_cast<char>(digit - 'a' + 'A');
+            uint8_t d = 15;   // Digit2index (見つからなければ 0)
+            while (d > 0 && digit != digits[d]) --d;
+            int32_t position_value = 1;
+            for (size_t i = 2; i <= len - index + 1; ++i) position_value *= base;
+            value += d * position_value;
+        }
+    }
+    return value;
+}
+
+std::string FilterStr2(std::string str, const tCHARSET& chr0, char chr1)
+{
+    static const char _treat_char[] = "CueaaaaceeeiiiAAE_AooouuyOU_____aiounN";   // [$80..$a5]
+    for (char& c : str) {
+        if (!InSet(chr0, c)) {
+            const uint8_t b = static_cast<uint8_t>(c);
+            if (b >= 0x80 && b <= 0xa5) c = _treat_char[b - 0x80];
+            else if (b == 0) c = ' ';
+            else c = chr1;
+        }
+    }
+    return str;
+}
+
+std::string CutStrR(std::string str, uint8_t margin)
+{
+    const int len = static_cast<int>(str.size());
+    if (margin > len) margin = static_cast<uint8_t>(len);
+    // str[0] は Pascal では長さのバイト
+    const auto at = [&](int i) { return i == 0 ? static_cast<char>(len) : str[static_cast<size_t>(i - 1)]; };
+    int idx = 0;
+    while (len - idx >= 0 && at(len - idx) == ' ' && len - idx >= margin) ++idx;
+    str.resize(static_cast<size_t>(std::max(0, len - idx)));
+    return str;
+}
+
 std::string ExpStrL(std::string str, uint8_t size, char chr)
 {
     while (str.size() < size) str.insert(str.begin(), chr);

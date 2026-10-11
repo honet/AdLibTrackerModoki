@@ -1,5 +1,7 @@
 #include "DialogIO.h"
 
+#include <algorithm>
+
 #include "StringIO.h"
 #include "TxtScrIO.h"
 #include "../platform/System.h"
@@ -303,6 +305,292 @@ uint8_t Dialog(const std::string& text, const std::string& keys, const std::stri
         ScreenMemCopy(scr_backup, screen_ptr);
     }
     return result;
+}
+
+// --- InputStr ---
+
+bool use_large_cursor = false;
+
+tINPUT_STR_SETTING is_setting = {
+    true,
+    true,
+    true,
+    CharRange(0x20, 0xff),
+    CharRange(0x20, 0xff),
+    CharRange(0x20, 0xff),
+    CharRange('A', 'Z') | CharRange('a', 'z') | CharRange('0', '9') | CharSet("_"),
+    { kESC, kENTER },
+};
+
+tINPUT_STR_ENVIRONMENT is_environment = { 0, 0, false, 0, 0, "", nullptr };
+
+std::string InputStr(std::string s, uint8_t x, uint8_t y, uint8_t ln, uint8_t ln1, uint8_t atr1, uint8_t atr2)
+{
+    // Pascal の s[i] (範囲外は 0、s[0] は長さ)
+    const auto sc = [&s](int i) -> char {
+        if (i == 0) return static_cast<char>(s.size());
+        return (i >= 1 && i <= static_cast<int>(s.size())) ? s[static_cast<size_t>(i - 1)] : '\0';
+    };
+    const auto len = [&s]() { return static_cast<int>(s.size()); };
+    const auto del = [&s](int index, int count) {   // Pascal の Delete
+        if (index < 1 || index > static_cast<int>(s.size()) || count <= 0) return;
+        s.erase(static_cast<size_t>(index - 1), static_cast<size_t>(count));
+    };
+    const auto set_cursor = [](bool ins) {
+        if (ins) {
+            if (use_large_cursor) WideCursor();
+            else ThinCursor();
+        } else {
+            if (use_large_cursor) ThinCursor();
+            else WideCursor();
+        }
+    };
+    const auto filtered = [](const std::string& str) { return FilterStr2(str, is_setting.char_filter, '_'); };
+    const int more_ln = std::max(ln, ln1);
+
+    s = Copy(s, 1, ln);
+    if (is_environment.locate_pos > ln1) is_environment.locate_pos = ln1;
+    if (is_environment.locate_pos > s.size() + 1) is_environment.locate_pos = static_cast<uint8_t>(s.size());
+
+    int cloc = is_environment.locate_pos;
+    int xloc = is_environment.locate_pos;
+    const uint8_t xint = x;
+    bool qflg = false;
+    bool ins = is_setting.insert_mode;
+    bool appn = !is_setting.append_enabled;
+
+    --x;
+    set_cursor(ins);
+
+    std::string s1 = s;
+    if (s1.size() > ln1) s1.resize(ln1);
+
+    ShowStr(screen_ptr, xint, y, ExpStrR("", ln1, ' '), atr1);
+    ShowStr(screen_ptr, xint, y, filtered(s1), atr2);
+    bool for1st = true;
+    uint16_t key = 0;
+
+    do {
+        const std::string s2 = s1;
+        if (xloc == 1) s1 = Copy(s, cloc, ln1);
+        else s1 = Copy(s, cloc - xloc + 1, ln1);
+
+        const uint8_t attr = !appn ? atr2 : atr1;
+
+        if (appn && for1st) {
+            ShowStr(screen_ptr, xint, y, ExpStrR(filtered(s1), ln1, ' '), atr1);
+            for1st = false;
+        }
+
+        if (s2 != s1) ShowStr(screen_ptr, xint, y, ExpStrR(filtered(s1), ln1, ' '), atr1);
+
+        if (ln1 < ln) {
+            if (cloc - xloc > 0 && len() > 0)
+                ShowStr(screen_ptr, xint, y, "\x11", static_cast<uint8_t>((attr & 0xf0) + 0x0f));
+            else if (cloc - xloc == 0 && len() != 0)
+                ShowStr(screen_ptr, xint, y, std::string(1, s[0]), attr);
+            else
+                ShowStr(screen_ptr, xint, y, " ", atr1);
+        }
+
+        if (ln1 < ln) {
+            if (cloc - xloc + ln1 < len())
+                ShowStr(screen_ptr, static_cast<uint8_t>(xint + ln1 - 1), y, "\x10", static_cast<uint8_t>((attr & 0xf0) + 0x0f));
+            else if (cloc - xloc + ln1 == len())
+                ShowStr(screen_ptr, static_cast<uint8_t>(xint + ln1 - 1), y, filtered(std::string(1, sc(len()))), attr);
+            else
+                ShowStr(screen_ptr, static_cast<uint8_t>(xint + ln1 - 1), y, " ", atr1);
+        }
+
+        GotoXY(static_cast<uint8_t>(x + xloc), y);
+        if (keypressed()) {
+            key = getkey();
+            if (LookUpKey(key, is_setting.terminate_keys, 50)) qflg = true;
+            bool chflag = false;
+
+            if (!qflg) {
+                switch (key) {
+                case kTAB:
+                    appn = true;
+                    break;
+
+                case kCHplus:
+                case kNPplus:
+                    chflag = true;
+                    if (is_setting.character_set == DEC_NUM_CHARSET) {
+                        const int32_t v = Str2num(s, 10) + 1;
+                        if (Num2str(v, 10).size() <= ln1 && static_cast<uint32_t>(v) <= is_environment.max_num) {
+                            s = Num2str(v, 10);
+                            chflag = false;
+                        }
+                    } else if (is_setting.character_set == HEX_NUM_CHARSET) {
+                        const int32_t v = Str2num(s, 16) + 1;
+                        if (Num2str(v, 16).size() <= ln1 && static_cast<uint32_t>(v) <= is_environment.max_num) {
+                            s = Num2str(v, 16);
+                            chflag = false;
+                        }
+                    }
+                    break;
+
+                case kCHmins:
+                case kNPmins:
+                    chflag = true;
+                    if (is_setting.character_set == DEC_NUM_CHARSET) {
+                        const int32_t v = Str2num(s, 10);
+                        if (v > 0 && static_cast<uint32_t>(v - 1) >= is_environment.min_num) {
+                            s = Num2str(v - 1, 10);
+                            chflag = false;
+                        }
+                    } else if (is_setting.character_set == HEX_NUM_CHARSET) {
+                        const int32_t v = Str2num(s, 16);
+                        if (v > 0 && static_cast<uint32_t>(v - 1) >= is_environment.min_num) {
+                            s = Num2str(v - 1, 16);
+                            chflag = false;
+                        }
+                    }
+                    break;
+
+                case kCtrlY:
+                    appn = true;
+                    s.clear();
+                    cloc = 1;
+                    xloc = 1;
+                    break;
+
+                case kCtrlT:
+                    appn = true;
+                    while (InSet(is_setting.word_characters, sc(cloc)) && cloc <= len()) del(cloc, 1);
+                    while (!InSet(is_setting.word_characters, sc(cloc)) && cloc <= len()) del(cloc, 1);
+                    break;
+
+                case kCtrlK:
+                    appn = true;
+                    del(cloc, len());
+                    break;
+
+                case kCtBkSp:
+                    appn = true;
+                    while (InSet(is_setting.word_characters, sc(cloc - 1)) && cloc > 1) {
+                        --cloc;
+                        del(cloc, 1);
+                        if (xloc > 1) --xloc;
+                    }
+                    while (!InSet(is_setting.word_characters, sc(cloc - 1)) && cloc > 1) {
+                        --cloc;
+                        del(cloc, 1);
+                        if (xloc > 1) --xloc;
+                    }
+                    break;
+
+                case kBkSPC:
+                    appn = true;
+                    if (cloc > 1) {
+                        if (xloc > 1) --xloc;
+                        --cloc;
+                        del(cloc, 1);
+                    }
+                    break;
+
+                case kDELETE:
+                    appn = true;
+                    if (cloc <= len()) del(cloc, 1);
+                    break;
+
+                case kCtLEFT:
+                    appn = true;
+                    while (InSet(is_setting.word_characters, sc(cloc)) && cloc > 1) {
+                        --cloc;
+                        if (xloc > 1) --xloc;
+                    }
+                    while (!InSet(is_setting.word_characters, sc(cloc)) && cloc > 1) {
+                        --cloc;
+                        if (xloc > 1) --xloc;
+                    }
+                    break;
+
+                case kCtRGHT:
+                    appn = true;
+                    while (InSet(is_setting.word_characters, sc(cloc)) && cloc < len()) {
+                        ++cloc;
+                        if (xloc < ln1) ++xloc;
+                    }
+                    while (!InSet(is_setting.word_characters, sc(cloc)) && cloc < len()) {
+                        ++cloc;
+                        if (xloc < ln1) ++xloc;
+                    }
+                    break;
+
+                case kLEFT:
+                    appn = true;
+                    if (cloc > 1) --cloc;
+                    if (xloc > 1) --xloc;
+                    break;
+
+                case kRIGHT:
+                    appn = true;
+                    if (cloc < len() || (cloc == len() && len() < more_ln)) ++cloc;
+                    if (xloc < ln1 && xloc <= len()) ++xloc;
+                    break;
+
+                case kINSERT:
+                    if (is_setting.replace_enabled) {
+                        ins = !ins;
+                        set_cursor(ins);
+                    }
+                    break;
+
+                case kHOME:
+                    appn = true;
+                    cloc = 1;
+                    xloc = 1;
+                    break;
+
+                case kEND:
+                    appn = true;
+                    if (len() < more_ln) cloc = len() + 1;
+                    else cloc = len();
+                    xloc = cloc < ln1 ? cloc : ln1;
+                    break;
+
+                default:
+                    chflag = true;
+                    break;
+                }
+            }
+
+            const char ch = static_cast<char>(key & 0xff);
+            if (chflag && InSet(is_setting.character_set, ch)) {
+                if (!appn) {
+                    s.clear();
+                    cloc = 1;
+                    xloc = 1;
+                }
+                appn = true;
+                if (ins && static_cast<int>(CutStrR(s, static_cast<uint8_t>(cloc)).size()) < ln) {
+                    s.insert(static_cast<size_t>(std::min(cloc - 1, len())), 1, ch);
+                    if (s.size() > 255) s.resize(255);
+                    s = FilterStr2(s, is_setting.valid_chars, '_');
+                    if (cloc < ln) ++cloc;
+                    if (xloc < ln && xloc < ln1) ++xloc;
+                } else if (len() < ln || !ins) {
+                    if (cloc > len() && len() < ln) s.push_back('\0');
+                    if (cloc >= 1 && cloc <= len()) s[static_cast<size_t>(cloc - 1)] = ch;
+                    s = FilterStr2(s, is_setting.valid_chars, '_');
+                    if (cloc < ln) ++cloc;
+                    if (xloc < ln && xloc < ln1) ++xloc;
+                }
+            }
+        }
+
+        is_environment.cur_str = s;
+        if (is_environment.ext_proc) is_environment.ext_proc();
+        draw_screen();
+    } while (!qflg && !_force_program_quit);
+
+    is_environment.locate_pos = static_cast<uint8_t>(cloc == 0 ? 1 : cloc);
+    is_environment.keystroke = key;
+    is_environment.insert_mode = ins;
+    return s;
 }
 
 } // namespace at2

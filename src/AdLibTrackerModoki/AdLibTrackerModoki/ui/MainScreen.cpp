@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "DialogIO.h"
 #include "MainScreenData.h"
@@ -56,7 +57,6 @@ bool scroll_bars = true;
 uint8_t pattern_layout = 0;
 bool trace_by_default = true;
 bool nosync_by_default = false;
-bool use_large_cursor = false;
 double decay_bar_rise = 3.0;
 double decay_bar_fall = 0.3;
 
@@ -79,6 +79,7 @@ std::wstring songdata_source;   // 読み込んだ (保存した) 曲のパス
 
 uint8_t current_octave = 4;
 uint8_t current_inst = 1;
+uint8_t instrum_page = 1;
 uint8_t chan_pos = 1;
 uint8_t pattord_page = 0, pattord_hpos = 1, pattord_vpos = 1;
 uint8_t pattern_patt = 0, pattern_page = 0, pattern_hpos = 1;
@@ -137,6 +138,30 @@ struct PlayerLock
     }
     PlayerLock(const PlayerLock&) = delete;
     PlayerLock& operator=(const PlayerLock&) = delete;
+};
+
+// PlayerLock を取っている間に、ダイアログなど draw_screen を呼ぶ処理を行うため一時的にロックを外す
+struct PlayerUnlock
+{
+    int saved_depth;
+    PlayerUnlock() : saved_depth(g_lock_depth)
+    {
+        if (saved_depth > 0) {
+            g_lock_depth = 0;
+            g_locked_mutex->unlock();
+            g_locked_mutex = nullptr;
+        }
+    }
+    ~PlayerUnlock()
+    {
+        if (saved_depth > 0) {
+            g_locked_mutex = &sound_mutex();
+            g_locked_mutex->lock();
+            g_lock_depth = saved_depth;
+        }
+    }
+    PlayerUnlock(const PlayerUnlock&) = delete;
+    PlayerUnlock& operator=(const PlayerUnlock&) = delete;
 };
 
 A2Player& P() { return *sound_player(); }
@@ -863,6 +888,8 @@ void PATTERN_tabs_refresh()
     if (str) show_cstr(x, 10, str, pattern_bckg + pattern_border, pattern_bckg + pattern_pos_indic);
 }
 
+uint16_t get_4op_to_test();
+
 void STATUS_LINE_refresh()
 {
     if (really_no_status_refresh) return;
@@ -870,9 +897,14 @@ void STATUS_LINE_refresh()
     const int ps = play_status();
     const uint8_t ys = B(MAX_PATTERN_ROWS + 12);
 
-    // get_4op_to_test (4OP 用に選んだ楽器の組) は楽器選択が未実装のため常に 0
-    show_cstr(40, ys, "~[~" + byte2hex(current_inst) + "~]~\xC4\xC4\xC4",
-              main_background + main_border, main_background + main_stat_line);
+    const uint16_t pair = get_4op_to_test();
+    if (pair != 0) {
+        show_cstr(40, ys, "~[~" + byte2hex(static_cast<uint8_t>(pair >> 8)) + "~+~" + byte2hex(static_cast<uint8_t>(pair & 0xff)) + "~]~",
+                  main_background + main_hi_stat_line, main_background + main_stat_line);
+    } else {
+        show_cstr(40, ys, "~[~" + byte2hex(current_inst) + "~]~\xC4\xC4\xC4",
+                  main_background + main_border, main_background + main_stat_line);
+    }
 
     show_cstr(B(MAX_COLUMNS - 39), ys,
               "~[LN:~" + ExpStrL(Num2str(pattern_page, 10), 3, '0') + "/" +
@@ -1395,6 +1427,7 @@ void POSITIONS_reset()
     pattord_page = 0;
     pattord_hpos = 1;
     pattord_vpos = 1;
+    instrum_page = 1;
     pattern_page = 0;
     pattern_hpos = 1;
 
@@ -2045,7 +2078,8 @@ void track_onoff_dialog()
 bool pending_track_dialog = false;
 
 // トレース中・編集中で共通のトラック操作キー
-void process_channel_keys(uint16_t fkey)
+// トラックの ON/OFF のキー。該当するキーなら true を返す。
+bool process_channel_keys(uint16_t fkey)
 {
     A2Player& p = P();
     FixedSongData& sd = songdata();
@@ -2091,9 +2125,11 @@ void process_channel_keys(uint16_t fkey)
                 // それ以外はトラックを選ぶダイアログを出す (ロックを外して呼ぶ)
                 pending_track_dialog = true;
             }
+            return true;
         }
-        break;
+        return false;
     }
+    return true;
 }
 
 // Ctrl+ENTER: 次のオーダーへ進む (単独パターン再生中はパターンの先頭へ戻る)。ロックを外して呼ぶ。
@@ -3326,9 +3362,690 @@ bool process_play_keys(uint16_t fkey, uint8_t pattern)
     }
 }
 
+// ---------------------------------------------------------------------------
+// パターンの編集 (ipattern.inc の PATTERN_edit とその補助処理)
+// ---------------------------------------------------------------------------
+
+// 設定値 (typcons1.inc の既定値。設定画面は未実装)
+bool lf_in_mboard_mode = false;
+bool update_ins = false;
+bool keep_track_pos = false;
+uint8_t backspace_dir = 1;
+const char b_note = 'b';
+constexpr uint8_t pattern_input_bckg = 0xb0;
+constexpr uint8_t pattern_input = 0x00;
+constexpr uint8_t pattern_input_warn = 0x80;
+
+// MIDI ボード (キーボードを鍵盤として使う) のキー (typcons1.inc、[1..29])
+const uint8_t board_scancodes[29] = {
+    0x2c, 0x1f, 0x2d, 0x20, 0x2e, 0x2f, 0x22, 0x30, 0x23, 0x31, 0x24, 0x32,
+    0x10, 0x03, 0x11, 0x04, 0x12, 0x13, 0x06, 0x14, 0x07, 0x15, 0x08, 0x16, 0x17, 0x0a, 0x18, 0x0b, 0x19,
+};
+
+// ノートレコーダーの状態 (ノートレコーダーは未実装のため track_notes は FALSE のまま)
+bool track_notes_ins = false;
+uint8_t track_chan_start = 1;
+uint8_t nm_track_chan = 1;
+uint8_t old_nm_track_chan = 0;
+uint8_t old_track_chan_start = 0;
+
+// ブロックの選択 (ブロック操作は未実装。PATTERN_position_preview が使う)
+uint8_t block_xstart = 1;
+uint8_t block_ystart = 0;
+bool discard_block = false;
+
+inline uint8_t LO(uint16_t value) { return static_cast<uint8_t>(value & 0xff); }
+inline uint8_t HI(uint16_t value) { return static_cast<uint8_t>(value >> 8); }
+inline char UpCase(char c) { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c; }
+
+std::string Upper(std::string str)
+{
+    for (char& c : str) c = UpCase(c);
+    return str;
+}
+
+void cancel_note_recorder()
+{
+    if (track_notes) {
+        old_nm_track_chan = nm_track_chan;
+        old_track_chan_start = track_chan_start;
+        track_notes = false;
+        nm_track_chan = 1;
+    }
+}
+
+// put_chunk (SDL 版)
+void put_chunk(uint8_t pattern, uint8_t line, uint8_t channel, const Chunk& chunk)
+{
+    if (pattern < 128 && channel >= 1 && channel <= 20) {
+        P().song()->putChunk(pattern, line, channel, chunk);
+        module_archived = false;
+    }
+}
+
+// 楽器データ (songdata.instr_data[ins]) の先頭
+const uint8_t* instr_data_bytes(uint8_t ins)
+{
+    return reinterpret_cast<const uint8_t*>(&at1(songdata().instr_data, ins));
+}
+
+// --- 元に戻す (Ctrl+Z) ---
+// オリジナルは SizeOf(tPATTERN_DATA) DIV 16 バイト、つまり pattern_patt から 8 パターン分を保存する
+
+bool pattern_undo_flag = false;
+uint8_t pattern_undo_patt = 0;
+std::vector<Chunk> pattern_undo_data;
+
+Chunk* pattern_data_ptr(uint8_t pattern)
+{
+    return &P().song()->patterns().block[pattern / 8][pattern % 8][0][0];
+}
+
+size_t pattern_undo_size(uint8_t pattern)
+{
+    return static_cast<size_t>(std::min(8, 128 - pattern)) * 20 * 256;
+}
+
+void _save_pattern_to_undo()
+{
+    pattern_undo_flag = true;
+    pattern_undo_patt = pattern_patt;
+    const Chunk* src = pattern_data_ptr(pattern_undo_patt);
+    pattern_undo_data.assign(src, src + pattern_undo_size(pattern_undo_patt));
+}
+
+void _restore_pattern_from_undo()
+{
+    if (pattern_undo_flag) {
+        std::copy(pattern_undo_data.begin(), pattern_undo_data.end(), pattern_data_ptr(pattern_undo_patt));
+        pattern_undo_flag = false;
+    }
+}
+
+// --- 楽器の印 (instedit.inc) ---
+
+constexpr char _ins_mark_chr = '\x10';
+
+bool check_4op_flag(uint8_t ins)
+{
+    const FixedSongData& sd = songdata();
+    for (int idx = 1; idx <= sd.ins_4op_flags.num_4op && idx <= 128; ++idx) {
+        if (sd.ins_4op_flags.idx_4op[idx - 1] == ins) return true;
+    }
+    return false;
+}
+
+char& instr_name_1st_char(int ins) { return at1(songdata().instr_names, ins).data[0]; }
+
+uint8_t _1st_marked()
+{
+    for (int temp = 1; temp <= 255; ++temp) {
+        if (instr_name_1st_char(temp) == _ins_mark_chr) return B(temp);
+    }
+    return 0;
+}
+
+uint8_t _2nd_marked()
+{
+    const uint8_t first = _1st_marked();
+    if (first != 0) {
+        for (int temp = first + 1; temp <= 255; ++temp) {
+            if (instr_name_1st_char(temp) == _ins_mark_chr) return B(temp);
+        }
+    }
+    return 0;
+}
+
+uint8_t marked_instruments()
+{
+    uint8_t result = 0;
+    for (int temp = 1; temp <= 255; ++temp) {
+        if (instr_name_1st_char(temp) == _ins_mark_chr) ++result;
+    }
+    return result;
+}
+
+void reset_marked_instruments()
+{
+    if (marked_instruments() < 2) {
+        if (instr_name_1st_char(instrum_page) == _ins_mark_chr) instr_name_1st_char(instrum_page) = ' ';
+    } else {
+        instr_name_1st_char(_2nd_marked()) = ' ';
+        instr_name_1st_char(_1st_marked()) = ' ';
+    }
+    update_4op_flag_marks();
+}
+
+// 4OP の楽器の組 (上位バイト: 1 つ目、下位バイト: 2 つ目)
+uint16_t get_4op_to_test()
+{
+    uint16_t result = 0;
+    if (songdata().flag_4op != 0) {
+        if (check_4op_flag(current_inst)) {
+            result = static_cast<uint16_t>(current_inst + 1 + (current_inst << 8));
+        } else if (current_inst > 1 && check_4op_flag(B(current_inst - 1))) {
+            result = static_cast<uint16_t>(current_inst + ((current_inst - 1) << 8));
+        }
+    }
+    return result;
+}
+
+// エフェクトの値が範囲内か。command_typing のときは範囲内に直す。
+bool correct_range(uint8_t fxdef, uint8_t& fxdata)
+{
+    bool result = false;
+    switch (fxdef) {
+    case ef_Arpeggio:
+    case ef_FSlideUp:
+    case ef_FSlideDown:
+    case ef_FSlideUpFine:
+    case ef_FSlideDownFine:
+    case ef_FSlideUpVSlide:
+    case ef_FSlUpVSlF:
+    case ef_FSlideDownVSlide:
+    case ef_FSlDownVSlF:
+    case ef_FSlUpFineVSlide:
+    case ef_FSlUpFineVSlF:
+    case ef_FSlDownFineVSlide:
+    case ef_FSlDownFineVSlF:
+    case ef_TonePortamento:
+    case ef_TPortamVolSlide:
+    case ef_TPortamVSlideFine:
+    case ef_Vibrato:
+    case ef_VibratoVolSlide:
+    case ef_VibratoVSlideFine:
+    case ef_VolSlide:
+    case ef_VolSlideFine:
+    case ef_ArpggVSlide:
+    case ef_ArpggVSlideFine:
+    case ef_Tremolo:
+    case ef_Tremor:
+    case ef_ExtraFineVibrato:
+    case ef_ExtraFineTremolo:
+    case ef_SwapArpeggio:
+    case ef_SwapVibrato:
+    case ef_SetCustomSpeedTab:
+    case ef_GlobalFSlideUp:
+    case ef_GlobalFSlideDown:
+        result = true;
+        break;
+
+    case ef_SetSpeed:
+    case ef_SetTempo:
+    case ef_ExtraFineArpeggio:
+    case ef_RetrigNote:
+    case ef_MultiRetrigNote:
+        if (fxdata != 0) {
+            result = true;
+        } else if (command_typing != 0) {
+            fxdata = fxdef != ef_MultiRetrigNote ? 1 : 0x10;
+            result = true;
+        }
+        break;
+
+    case ef_SetCarrierVol:
+    case ef_SetModulatorVol:
+    case ef_SetInsVolume:
+    case ef_ForceInsVolume:
+    case ef_SetGlobalVolume:
+        if (fxdata <= 63) {
+            result = true;
+        } else if (command_typing != 0) {
+            fxdata = 0;
+            result = true;
+        }
+        break;
+
+    case ef_PatternBreak:
+        result = true;
+        break;
+
+    case ef_PositionJump:
+        if (fxdata <= 127) {
+            result = true;
+        } else if (command_typing != 0) {
+            fxdata = 0;
+            result = true;
+        }
+        break;
+
+    case ef_SetWaveform: {
+        const auto valid = [](int v) { return v <= 7 || v == 0x0f; };
+        if (valid(fxdata / 16) && valid(fxdata % 16)) {
+            result = true;
+        } else if (command_typing != 0) {
+            if (valid(fxdata / 16)) fxdata &= 0xf0;
+            else if (valid(fxdata % 16)) fxdata &= 0x0f;
+            else fxdata = 0;
+            result = true;
+        }
+        break;
+    }
+
+    case ef_Extended: {
+        const int hi = fxdata >> 4;
+        const int lo = fxdata & 0x0f;
+        bool valid;
+        switch (hi) {
+        case 0x0: case 0x1: valid = lo <= 1; break;
+        case 0xa: case 0xe: valid = lo <= 7; break;
+        case 0xb: valid = lo <= 2; break;
+        default: valid = true; break;
+        }
+        if (valid) {
+            result = true;
+        } else if (command_typing != 0) {
+            fxdata &= 0xf0;
+            result = true;
+        }
+        break;
+    }
+
+    case ef_Extended2:
+        if ((fxdata & 0x0f) != 0) {
+            result = true;
+        } else if (command_typing != 0) {
+            fxdata = B((fxdata & 0xf0) + 1);
+            result = true;
+        }
+        break;
+
+    case ef_Extended3: {
+        const int hi = fxdata >> 4;
+        const int lo = fxdata & 0x0f;
+        bool valid;
+        switch (hi) {
+        case 0x1: case 0x7: valid = true; break;
+        case 0x2: case 0x8: valid = lo <= 3; break;
+        case 0x0: case 0x3: case 0x4: case 0x5: case 0x6: case 0x9: case 0xa: case 0xb: case 0xc: valid = lo <= 1; break;
+        default: valid = false; break;
+        }
+        if (valid) {
+            result = true;
+        } else if (command_typing != 0) {
+            if (hi <= 0x0c) fxdata = B((fxdata & 0xf0) + 1);
+            else fxdata = 1;
+            result = true;
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+    return result;
+}
+
+// エフェクトの文字から番号へ (見つからなければ BYTE_NULL)
+uint8_t FX(char chr)
+{
+    const char* p = std::strchr(fx_digits, UpCase(chr));
+    if (chr == '\0' || p == nullptr) return BYTE_NULL;
+    return B(static_cast<int>(p - fx_digits));
+}
+
+// 位置を指して確認するときの画面 (ipattern.inc の PATTERN_position_preview)
+// mode 0: 位置を保存、1: 指定位置を表示、BYTE_NULL: 保存した位置に戻す
+void PATTERN_position_preview(uint8_t pattern, uint8_t line, uint8_t channel, uint8_t mode)
+{
+    static uint8_t old_pattern_patt, old_pattern_page, old_pattern_hpos, old_chan_pos;
+    static uint8_t old_block_xstart, old_block_ystart;
+    static bool old_marking;
+
+    if (mode == 0) {
+        old_pattern_patt = pattern_patt;
+        old_pattern_page = pattern_page;
+        old_pattern_hpos = pattern_hpos;
+        old_chan_pos = chan_pos;
+        old_block_xstart = block_xstart;
+        old_block_ystart = block_ystart;
+        old_marking = marking;
+    } else if (mode == 1) {
+        pattern_patt = pattern;
+        pattern_page = line;
+        if (channel > chan_pos + MAX_TRACKS - 1) {
+            while (channel > chan_pos + MAX_TRACKS - 1) ++chan_pos;
+        } else {
+            while (channel < chan_pos) --chan_pos;
+        }
+        while (channel > chan_pos + MAX_TRACKS - 1 && chan_pos < last_chan_pos()) ++chan_pos;
+        if (count_channel(pattern_hpos) < channel) {
+            while (count_channel(pattern_hpos) != channel) ++pattern_hpos;
+        } else {
+            while (count_channel(pattern_hpos) != channel) --pattern_hpos;
+        }
+        while (count_pos(pattern_hpos) != 0) --pattern_hpos;
+        block_xstart = count_channel(pattern_hpos);
+        block_ystart = line;
+        marking = true;
+        cancel_note_recorder();
+        discard_block = true;
+        PATTERN_ORDER_page_refresh(pattord_page);
+        PATTERN_page_refresh(pattern_page);
+    } else if (mode == BYTE_NULL) {
+        pattern_patt = old_pattern_patt;
+        pattern_page = old_pattern_page;
+        pattern_hpos = old_pattern_hpos;
+        chan_pos = old_chan_pos;
+        block_xstart = old_block_xstart;
+        block_ystart = old_block_ystart;
+        marking = old_marking;
+        discard_block = false;
+        PATTERN_ORDER_page_refresh(pattord_page);
+        PATTERN_page_refresh(pattern_page);
+    }
+}
+
+// --- 移調 (adt2extn.pas の transpose_custom_area) ---
+
+enum class TransposeType { Up, Down, CurrentIns, AllIns };
+
+// ロックを取った状態で呼ぶ (確認のダイアログの間はロックを外す)
+void transpose_custom_area(TransposeType type1, TransposeType type2, uint8_t patt0, uint8_t patt1,
+                           uint8_t track0, uint8_t track1, uint8_t line0, uint8_t line1, uint8_t factor)
+{
+    A2Player& p = P();
+    const bool backup_replay_forbidden = p.replay_forbidden;
+    const PlayStatus backup_play_status = p.play_status;
+    p.replay_forbidden = true;
+    if (p.play_status != PlayStatus::Stopped) p.play_status = PlayStatus::Paused;
+    PATTERN_position_preview(BYTE_NULL, BYTE_NULL, BYTE_NULL, 0);
+
+    const bool up = type1 == TransposeType::Up;
+    const bool current_ins = type2 == TransposeType::CurrentIns;
+    const auto is_fixed_or_null = [](uint8_t note) {
+        return (note >= fixed_note_flag + 1 && note <= fixed_note_flag + 12 * 8 + 1) || note == BYTE_NULL;
+    };
+    // 移調すると範囲を超えるか
+    const auto overflow = [&](const Chunk& chunk) {
+        if (up) {
+            if (!current_ins) return !(chunk.note + factor <= 12 * 8 + 1) && !is_fixed_or_null(chunk.note);
+            return !(chunk.note < 12 * 8 + 1) && !is_fixed_or_null(chunk.note) && chunk.instr_def == current_inst;
+        }
+        return !(chunk.note >= factor + 1) && !(chunk.note == 0 || is_fixed_or_null(chunk.note)) &&
+               (!current_ins || chunk.instr_def == current_inst);
+    };
+    const auto overflow_dialog = [&](uint8_t patt, uint8_t line, uint8_t track, const char* keys) -> uint8_t {
+        PATTERN_position_preview(patt, line, track, 1);
+        keyboard_reset_buffer();
+        PlayerUnlock unlock;
+        return Dialog("PATTERN #" + byte2hex(patt) + ", " + "LiNE #" + byte2hex(line) + ", " + "TRACK #" +
+                          Num2str(track, 10) + "$" + "NOTE OVERFLOW$",
+                      keys, " TRANSPOSE ", 1);
+    };
+
+    uint8_t _1st_choice = BYTE_NULL;
+    bool _break = false;
+    bool _continue = true;
+
+    for (int temp3 = patt0; temp3 <= patt1 && !_break; ++temp3) {
+        for (int temp2 = track0; temp2 <= track1 && !_break; ++temp2) {
+            for (int temp1 = line0; temp1 <= line1; ++temp1) {
+                Chunk chunk{};
+                get_chunk(B(temp3), B(temp1), B(temp2), chunk);
+                if (overflow(chunk)) {
+                    _1st_choice = overflow_dialog(B(temp3), B(temp1), B(temp2), "~E~RASE$ERASE ~A~LL$~S~KiP$S~K~iP ALL$~C~ANCEL$");
+                    _break = true;
+                    if (!(dl_environment.keystroke != kESC && _1st_choice != 5)) _continue = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    _break = false;
+    bool skip_all = false;
+    bool erase_all = false;
+
+    if (_continue) {
+        for (int temp3 = patt0; temp3 <= patt1 && !_break; ++temp3) {
+            for (int temp2 = track0; temp2 <= track1 && !_break; ++temp2) {
+                for (int temp1 = line0; temp1 <= line1; ++temp1) {
+                    Chunk chunk{};
+                    get_chunk(B(temp3), B(temp1), B(temp2), chunk);
+                    if (overflow(chunk)) {
+                        if (_1st_choice != BYTE_NULL) {
+                            switch (_1st_choice) {
+                            case 1:
+                            case 2:
+                                chunk.note = 0;
+                                chunk.instr_def = 0;
+                                if (_1st_choice == 2) erase_all = true;
+                                break;
+                            case 3:
+                            case 4:
+                                if (_1st_choice == 4) skip_all = true;
+                                break;
+                            }
+                            put_chunk(B(temp3), B(temp1), B(temp2), chunk);
+                            _1st_choice = BYTE_NULL;
+                            continue;
+                        }
+
+                        if (skip_all) continue;
+                        if (erase_all) {
+                            chunk.note = 0;
+                            chunk.instr_def = 0;
+                            put_chunk(B(temp3), B(temp1), B(temp2), chunk);
+                            continue;
+                        }
+
+                        const uint8_t temp = overflow_dialog(B(temp3), B(temp1), B(temp2), "~E~RASE$ERASE ~A~LL$~S~KiP$S~K~iP ALL$CANCEL$");
+                        if (dl_environment.keystroke != kESC) {
+                            if (temp == 5) {
+                                _break = true;
+                                break;
+                            }
+                            if (temp == 1 || temp == 2) {
+                                chunk.note = 0;
+                                chunk.instr_def = 0;
+                                if (temp == 2) erase_all = true;
+                            } else if (temp == 4) {
+                                skip_all = true;
+                            }
+                            put_chunk(B(temp3), B(temp1), B(temp2), chunk);
+                        }
+                    } else if (!(chunk.note == 0 || is_fixed_or_null(chunk.note)) &&
+                               (!current_ins || chunk.instr_def == current_inst)) {
+                        chunk.note = up ? B(chunk.note + factor) : B(chunk.note - factor);
+                        put_chunk(B(temp3), B(temp1), B(temp2), chunk);
+                    }
+                }
+            }
+        }
+    }
+
+    PATTERN_position_preview(BYTE_NULL, BYTE_NULL, BYTE_NULL, BYTE_NULL);
+    p.replay_forbidden = backup_replay_forbidden;
+    p.play_status = backup_play_status;
+}
+
+// --- MIDI ボードで入力した行を鳴らす (PATTERN_edit 内の処理) ---
+
+void preview_pattern_line(uint8_t pattern, uint8_t page)
+{
+    A2Player& p = P();
+    const bool backup_replay_forbidden = p.replay_forbidden;
+    const PlayStatus backup_play_status = p.play_status;
+
+    decltype(p.event_table) event_table_backup;
+    decltype(p.voice_table) voice_table_backup;
+    decltype(p.volume_table) volume_table_backup;
+    decltype(p.pan_lock) pan_lock_backup;
+    decltype(p.volume_lock) volume_lock_backup;
+    decltype(p.peak_lock) peak_lock_backup;
+    decltype(p.panning_table) panning_table_backup;
+    decltype(p.fmpar_table) fmpar_table_backup;
+    decltype(p.freq_table) freq_table_backup;
+    decltype(p.freqtable2) freqtable2_backup;
+    decltype(p.keyoff_loop) keyoff_loop_backup;
+
+    if (backup_play_status != PlayStatus::Stopped) {
+        p.replay_forbidden = true;
+        if (p.play_status != PlayStatus::Stopped) p.play_status = PlayStatus::Paused;
+        p.nul_volume_bars();
+
+        std::memcpy(event_table_backup, p.event_table, sizeof(p.event_table));
+        std::memcpy(voice_table_backup, p.voice_table, sizeof(p.voice_table));
+        std::memcpy(volume_table_backup, p.volume_table, sizeof(p.volume_table));
+        std::memcpy(pan_lock_backup, p.pan_lock, sizeof(p.pan_lock));
+        std::memcpy(volume_lock_backup, p.volume_lock, sizeof(p.volume_lock));
+        std::memcpy(peak_lock_backup, p.peak_lock, sizeof(p.peak_lock));
+        std::memcpy(panning_table_backup, p.panning_table, sizeof(p.panning_table));
+        std::fill(std::begin(p.pan_lock), std::end(p.pan_lock), false);
+        std::fill(std::begin(p.volume_lock), std::end(p.volume_lock), false);
+        std::fill(std::begin(p.peak_lock), std::end(p.peak_lock), false);
+
+        p.reset_player();
+        std::memcpy(fmpar_table_backup, p.fmpar_table, sizeof(p.fmpar_table));
+        std::memcpy(freq_table_backup, p.freq_table, sizeof(p.freq_table));
+        std::memcpy(freqtable2_backup, p.freqtable2, sizeof(p.freqtable2));
+        std::memcpy(keyoff_loop_backup, p.keyoff_loop, sizeof(p.keyoff_loop));
+        std::fill(std::begin(p.keyoff_loop), std::end(p.keyoff_loop), false);
+    }
+
+    if (!(p.debugging && p.play_status == PlayStatus::Stopped)) {
+        p.init_player();
+        p.debugging = true;
+    }
+
+    const uint8_t old_order = p.current_order;
+    const uint8_t old_pattern = p.current_pattern;
+    const uint8_t old_line = p.current_line;
+    const uint8_t old_speed = p.speed;
+    const uint8_t old_tempo = p.tempo;
+    p.current_order = 0;
+    p.current_pattern = pattern;
+    p.current_line = page;
+    p.single_play = true;
+    p.poll_proc();
+    p.single_play = false;
+    p.current_order = old_order;
+    p.current_pattern = old_pattern;
+    p.current_line = old_line;
+    p.speed = old_speed;
+    p.tempo = old_tempo;
+
+    p.play_status = PlayStatus::Stopped;
+    PATTERN_ORDER_page_refresh(pattord_page);
+    PATTERN_page_refresh(page);
+
+    if (backup_play_status != PlayStatus::Stopped) {
+        std::memcpy(p.event_table, event_table_backup, sizeof(p.event_table));
+        std::memcpy(p.voice_table, voice_table_backup, sizeof(p.voice_table));
+        std::memcpy(p.volume_table, volume_table_backup, sizeof(p.volume_table));
+        std::memcpy(p.fmpar_table, fmpar_table_backup, sizeof(p.fmpar_table));
+        std::memcpy(p.panning_table, panning_table_backup, sizeof(p.panning_table));
+        p.reset_player();
+
+        std::memcpy(p.pan_lock, pan_lock_backup, sizeof(p.pan_lock));
+        std::memcpy(p.volume_lock, volume_lock_backup, sizeof(p.volume_lock));
+        std::memcpy(p.peak_lock, peak_lock_backup, sizeof(p.peak_lock));
+
+        std::memcpy(p.freq_table, freq_table_backup, sizeof(p.freq_table));
+        std::memcpy(p.freqtable2, freqtable2_backup, sizeof(p.freqtable2));
+        std::memcpy(p.keyoff_loop, keyoff_loop_backup, sizeof(p.keyoff_loop));
+        std::memset(p.macro_table, 0, sizeof(p.macro_table));
+        p.replay_forbidden = backup_replay_forbidden;
+        p.play_status = backup_play_status;
+        p.debugging = false;
+    }
+}
+
+// F11 / F12 (押している間に切り替える)
+void wait_until_F11_F12_released()
+{
+    do {
+        draw_screen();
+        keyboard_poll_input();
+    } while ((scankey(SC_F11) || scankey(SC_F12)) && !_force_program_quit);
+    keyboard_reset_buffer();
+}
+
+void process_F11_F12()
+{
+    if (scankey(SC_F11) && !ctrl_pressed() && !alt_pressed() && !shift_pressed()) {
+        if (command_typing != 0) {
+            switch (command_typing) {
+            case 1:
+                if (cycle_pattern) {
+                    command_typing = 2;
+                    cycle_pattern = false;
+                } else {
+                    cycle_pattern = true;
+                }
+                break;
+            case 2:
+                command_typing = 1;
+                cycle_pattern = false;
+                break;
+            }
+        }
+        {
+            PlayerLock lock;
+            status_refresh();
+        }
+        wait_until_F11_F12_released();
+        keyboard_reset_buffer();
+    }
+
+    if (scankey(SC_F12) && !ctrl_pressed() && !alt_pressed()) {
+        if (!shift_pressed()) linefeed = !linefeed;
+        else jump_mark_mode = !jump_mark_mode;
+        {
+            PlayerLock lock;
+            status_refresh();
+        }
+        wait_until_F11_F12_released();
+        keyboard_reset_buffer();
+    }
+}
+
+// MIDI ボードで入力しても debugging を解除しないキー (カーソル移動など)
+bool is_navigation_key(uint16_t fkey)
+{
+    switch (fkey) {
+    case kUP: case kDOWN: case kHOME: case kEND: case kLEFT: case kRIGHT:
+    case kPgUP: case kPgDOWN: case kCtPgUP: case kCtPgDN: case kTAB: case kShTAB:
+    case kCtLbr: case kCtRbr: case kCHlbrk: case kCHrbrk: case kCtHOME: case kCtEND:
+    case kAltM: case kAltL: case kCtENTR: case kF1:
+        return true;
+    }
+    if (shift_pressed()) {
+        switch (fkey) {
+        case kNPHOME: case kNPPgUP: case kNPEND: case kNPPgDN:
+            return true;
+        }
+    }
+    return false;
+}
+
+// 次の行へ (Pascal の「If page < PRED(patt_len) then If cond then Inc(page) else else If cycle_pattern then page := 0」)
+void next_line(uint8_t& page, bool cond)
+{
+    if (page < songdata().patt_len - 1) {
+        if (cond) ++page;
+    } else if (cycle_pattern) {
+        page = 0;
+    }
+}
+
 // 戻り値は終了の原因となったキー (kESC / kF10)
 uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 {
+    uint8_t chan;
+    {
+        PlayerLock lock;
+        chan = count_channel(hpos);
+    }
+
+    // PATTERN_trace から戻ったとき、F10 で終了するなら true
+    const auto run_trace = []() -> bool {
+        PlayerUnlock unlock;
+        const uint16_t temp1 = PATTERN_trace();
+        return temp1 == kF10 || _force_program_quit;
+    };
+
     for (;;) {
         if (_force_program_quit) return kESC;
 
@@ -3351,8 +4068,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         const auto trace_after_debug_info = [&]() -> bool {
             if (!tracing) return false;
             tracing = false;
-            const uint16_t temp1 = PATTERN_trace();
-            return temp1 == kF10 || _force_program_quit;
+            return run_trace();
         };
 
         if (ctrl_pressed() && alt_pressed()) {
@@ -3366,92 +4082,134 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             continue;
         }
 
+        const uint8_t old_patt_page = page;
+        const uint8_t old_hpos = hpos;
         uint16_t fkey = process_events();
         if (fkey == WORD_NULL) {
             if (!keypressed()) {
                 draw_screen();
+                process_F11_F12();
                 continue;
             }
             fkey = getkey();
         }
         if (_force_program_quit) return kESC;
 
-        bool trace = false;
-        switch (fkey) {
-        case kF10:
-        case kESC:
-            if (QUIT_request()) return kESC;
-            break;
-
-        case kCtrlD:
-            if (!marking) DEBUG_INFO();
-            if (trace_after_debug_info()) return kF10;
-            break;
-
-        case kCtENTR:
-            jump_to_next_order();
-            break;
-
-        case kF2: case kShF2: case kCtrlS:
-        case kCtrlF2:
-        case kAltF2:
-        case kF4: case kCtrlA:
-            process_file_keys(fkey, false);
-            break;
-
-        case kF3:
-        case kShF3:
-        case kCtrlL:
-            FILE_open();
-            break;
-
-        case kF7:
-            fade_out_playback(false);
-            {
-                PlayerLock lock;
-                A2Player& p = P();
-                stop_playing();
-                if (p.play_status != PlayStatus::Stopped) std::fill(std::begin(p.ai_table), std::end(p.ai_table), uint8_t(0));
-            }
-            break;
-
-        case kF5: case kAltF5: case kShF5:
-        case kF6:
-        case kF8: case kAltF8: case kShF8:
-        case kF9: case kAltF9: case kShF9:
-            trace = process_play_keys(fkey, pattern);
-            break;
-
-        default: {
+        {
             PlayerLock lock;
-            const uint16_t last_line = static_cast<uint16_t>(songdata().patt_len - 1);
+            A2Player& p = P();
+            FixedSongData& sd = songdata();
+            const uint16_t last_line = static_cast<uint16_t>(sd.patt_len - 1);
             const uint8_t n = B(_pattedit_lastpos / MAX_TRACKS);
-            const uint8_t page_step = B(std::min<int>(16, songdata().patt_len));
+            const uint8_t page_step = B(std::min<int>(16, sd.patt_len));
+            bool nope = false;
+            bool trace = false;
+            Chunk chunk{};
+            Chunk chunk2{};
+
+            // Shift+カーソルキーでのブロックの選択は未実装
+
             switch (fkey) {
+            case kCHlbrk:
+            case kCtLbr:
+                if (!shift_pressed() && current_inst > 1) {
+                    if (!(marked_instruments() == 2)) {
+                        --current_inst;
+                        reset_marked_instruments();
+                    } else if (!(current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test()))) {
+                        --current_inst;
+                    } else {
+                        while (current_inst > 1 && (current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test())))
+                            --current_inst;
+                    }
+                    instrum_page = current_inst;
+                    keyboard_reset_buffer();
+                }
+                break;
+
+            case kCHrbrk:
+            case kCtRbr:
+                if (!shift_pressed() && current_inst < 255) {
+                    if (!(marked_instruments() == 2)) {
+                        ++current_inst;
+                        reset_marked_instruments();
+                    } else if (!(current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test()))) {
+                        ++current_inst;
+                    } else {
+                        while (current_inst < 255 && (current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test())))
+                            ++current_inst;
+                    }
+                    instrum_page = current_inst;
+                    keyboard_reset_buffer();
+                }
+                break;
+
             case kLEFT:
-                if (hpos > 1) --hpos;
-                else if (chan_pos > 1) { --chan_pos; hpos = n; }
-                else if (cycle_pattern) { chan_pos = last_chan_pos(); hpos = last_hpos(); }
+                if (marking) {
+                    if (hpos > n) hpos = B(hpos - n);
+                    else if (chan_pos > 1) --chan_pos;
+                } else if (hpos > 1) {
+                    --hpos;
+                } else if (chan_pos > 1) {
+                    --chan_pos;
+                    hpos = n;
+                } else if (cycle_pattern) {
+                    chan_pos = last_chan_pos();
+                    hpos = last_hpos();
+                }
                 break;
 
             case kRIGHT:
-                if (hpos < last_hpos()) ++hpos;
-                else if (chan_pos < last_chan_pos()) { ++chan_pos; hpos = B(last_hpos() - (n - 1)); }
-                else if (cycle_pattern) { chan_pos = 1; hpos = 1; }
+                if (marking) {
+                    if (hpos <= last_hpos() - n) hpos = B(hpos + n);
+                    else if (chan_pos < last_chan_pos()) ++chan_pos;
+                } else if (hpos < last_hpos()) {
+                    ++hpos;
+                } else if (chan_pos < last_chan_pos()) {
+                    ++chan_pos;
+                    hpos = B(last_hpos() - (n - 1));
+                } else if (cycle_pattern) {
+                    chan_pos = 1;
+                    hpos = 1;
+                }
                 break;
 
             case kUP:
-                if (page > 0) --page;
-                else if (cycle_pattern) page = B(last_line);
+                if (shift_pressed() && track_notes) {
+                    // ノートレコーダーの補正 (未実装)
+                } else if (page > 0) {
+                    --page;
+                } else if (!marking && cycle_pattern) {
+                    page = B(last_line);
+                }
                 break;
 
             case kDOWN:
-                if (page < last_line) ++page;
-                else if (cycle_pattern) page = 0;
+                if (shift_pressed() && track_notes) {
+                    // ノートレコーダーの補正 (未実装)
+                } else if (page < last_line) {
+                    ++page;
+                } else if (!marking && cycle_pattern) {
+                    page = 0;
+                }
+                break;
+
+            case kCHplus:
+            case kNPplus:
+                if (!marking) {
+                    if (pattern < 127) ++pattern;
+                }
+                break;
+
+            case kCHmins:
+            case kNPmins:
+                if (!marking) {
+                    if (pattern > 0) --pattern;
+                }
                 break;
 
             case kPgUP:
-                if (!shift_pressed()) {
+                if (!shift_pressed() || marking) {
                     if (page > page_step) page = B(page - page_step);
                     else page = 0;
                 } else if (pattern > 0) {
@@ -3460,7 +4218,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
 
             case kPgDOWN:
-                if (!shift_pressed()) {
+                if (!shift_pressed() || marking) {
                     if (page < last_line - page_step) page = B(page + page_step);
                     else page = B(last_line);
                 } else if (pattern < 127) {
@@ -3468,26 +4226,53 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 }
                 break;
 
-            case kCHplus:
-            case kNPplus:
-                if (pattern < 127) ++pattern;
+            case kNPUp:
+            case kNPDown:
+                if (NumLock()) nope = true;
                 break;
 
-            case kCHmins:
-            case kNPmins:
-                if (pattern > 0) --pattern;
+            case kNPPgUP:
+                if (NumLock()) {
+                    nope = true;
+                } else if (shift_pressed()) {
+                    if (!marking && pattern > 0) {
+                        --pattern;
+                    } else if (marking) {
+                        if (page > page_step) page = B(page - page_step);
+                        else page = 0;
+                    }
+                }
+                break;
+
+            case kNPPgDN:
+                if (NumLock()) {
+                    nope = true;
+                } else if (shift_pressed()) {
+                    if (!marking && pattern < 127) {
+                        ++pattern;
+                    } else if (marking) {
+                        if (page < last_line - page_step) page = B(page + page_step);
+                        else page = B(last_line);
+                    }
+                }
                 break;
 
             case kCtHOME:
-                if (pattern > 0) { --pattern; page = B(last_line); }
+                if (pattern > 0) {
+                    --pattern;
+                    page = B(last_line);
+                }
                 break;
 
             case kCtEND:
-                if (pattern < 127) { ++pattern; page = 0; }
+                if (pattern < 127) {
+                    ++pattern;
+                    page = 0;
+                }
                 break;
 
             case kHOME:
-                if (!shift_pressed()) {
+                if (!shift_pressed() || marking) {
                     if (page != 0) page = 0;
                     else { chan_pos = 1; hpos = 1; }
                 } else if (chan_pos + hpos - 1 != 1) {
@@ -3501,7 +4286,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
 
             case kEND:
-                if (!shift_pressed()) {
+                if (!shift_pressed() || marking) {
                     if (page != last_line) page = B(last_line);
                     else { chan_pos = last_chan_pos(); hpos = last_hpos(); }
                 } else if (chan_pos + hpos != last_chan_pos() + last_hpos()) {
@@ -3514,54 +4299,710 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 }
                 break;
 
+            case kNPHOME:
+                if (NumLock()) {
+                    nope = true;
+                } else if (shift_pressed()) {
+                    if (!marking) {
+                        if (chan_pos + hpos - 1 != 1) { chan_pos = 1; hpos = 1; }
+                        else if (page != 0) page = 0;
+                        else pattern = 0;
+                    } else if (page != 0) {
+                        page = 0;
+                    } else {
+                        chan_pos = 1;
+                        hpos = 1;
+                    }
+                }
+                break;
+
+            case kNPEND:
+                if (NumLock()) {
+                    nope = true;
+                } else if (shift_pressed()) {
+                    if (!marking) {
+                        if (chan_pos + hpos != last_chan_pos() + last_hpos()) { chan_pos = last_chan_pos(); hpos = last_hpos(); }
+                        else if (page != last_line) page = B(last_line);
+                        else pattern = 127;
+                    } else if (page != last_line) {
+                        page = B(last_line);
+                    } else {
+                        chan_pos = last_chan_pos();
+                        hpos = last_hpos();
+                    }
+                }
+                break;
+
+            case kAltL:
+                // 行の印の設定 (LINE_MARKING_SETUP) は未実装
+                break;
+
+            case kAltM:
+                if (p.mark_line != 0) {
+                    mark_lines = !mark_lines;
+                    PATTERN_ORDER_page_refresh(pattord_page);
+                    PATTERN_page_refresh(pattern_page);
+                }
+                break;
+
             case kShTAB:
                 if (hpos > n) {
                     hpos = B(hpos - n);
-                    const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
-                    hpos = B(hpos - temp);
+                    if (!keep_track_pos) {
+                        const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
+                        hpos = B(hpos - temp);
+                    }
                 } else if (chan_pos > 1) {
                     --chan_pos;
-                    const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
-                    hpos = B(hpos - temp);
+                    if (!keep_track_pos) {
+                        const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
+                        hpos = B(hpos - temp);
+                    }
                 } else if (cycle_pattern) {
                     chan_pos = last_chan_pos();
-                    hpos = last_hpos();
+                    if (!keep_track_pos) hpos = last_hpos();
                 }
                 break;
 
             case kTAB:
                 if (hpos <= last_hpos() - n) {
                     hpos = B(hpos + n);
-                    const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
-                    hpos = B(hpos - temp);
+                    if (!keep_track_pos) {
+                        const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
+                        hpos = B(hpos - temp);
+                    }
                 } else if (chan_pos < last_chan_pos()) {
                     ++chan_pos;
-                    const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
-                    hpos = B(hpos - temp);
+                    if (!keep_track_pos) {
+                        const uint8_t temp = hpos % n > 0 ? B(hpos % n - 1) : B(n - 1);
+                        hpos = B(hpos - temp);
+                    }
                 } else if (cycle_pattern) {
                     chan_pos = 1;
-                    hpos = 1;
+                    if (!keep_track_pos) hpos = 1;
+                }
+                break;
+
+            case kSPACE:
+                if (ctrl_pressed() && !shift_pressed() && !alt_pressed()) {
+                    // ノートレコーダー (Ctrl+Space) は未実装
+                    fkey = WORD_NULL;
+                } else if (track_notes) {
+                    track_notes_ins = !alt_pressed();
+                } else if (!ctrl_pressed() && shift_pressed() && !alt_pressed()) {
+                    midiboard = !midiboard;
+                    fkey = WORD_NULL;
+                } else if (!shift_pressed() && !ctrl_pressed() && !alt_pressed()) {
+                    if (!midiboard) next_line(page, linefeed || !lf_in_mboard_mode);
+                }
+                break;
+
+            case kINSERT:
+            case kNPins:
+            case kDELETE:
+            case kNPdel: {
+                const bool np = fkey == kNPins || fkey == kNPdel;
+                if (np && NumLock()) {
+                    nope = true;
+                    break;
+                }
+                if (np && !shift_pressed()) break;
+                _save_pattern_to_undo();
+                // Shift を押しているときは全トラック
+                const int ch0 = shift_pressed() ? 1 : chan;
+                const int ch1 = shift_pressed() ? sd.nm_tracks : chan;
+                if (fkey == kINSERT || fkey == kNPins) {
+                    for (int temp1 = sd.patt_len - 2; temp1 >= page; --temp1) {
+                        for (int temp2 = ch0; temp2 <= ch1; ++temp2) {
+                            get_chunk(pattern, B(temp1), B(temp2), chunk);
+                            put_chunk(pattern, B(temp1 + 1), B(temp2), chunk);
+                        }
+                    }
+                    for (int temp2 = ch0; temp2 <= ch1; ++temp2) {
+                        chunk = Chunk{};
+                        put_chunk(pattern, page, B(temp2), chunk);
+                    }
+                } else {
+                    for (int temp1 = page; temp1 <= sd.patt_len - 2; ++temp1) {
+                        for (int temp2 = ch0; temp2 <= ch1; ++temp2) {
+                            get_chunk(pattern, B(temp1 + 1), B(temp2), chunk);
+                            put_chunk(pattern, B(temp1), B(temp2), chunk);
+                        }
+                    }
+                    for (int temp2 = ch0; temp2 <= ch1; ++temp2) {
+                        chunk = Chunk{};
+                        put_chunk(pattern, B(last_line), B(temp2), chunk);
+                    }
+                }
+                break;
+            }
+
+            case kAltB:
+            case kAltQ:
+            case kCtrlK:
+            case kCtrlC:
+            case kAltP:
+            case kCtrlV:
+            case kAltV:
+            case kCtrlX:
+            case kCtrlN:
+            case kAltC:
+            case kCtrlB:
+            case kCtrlT:
+            case kCtrlR:
+            case kCtrlO:
+            case kCtrlP:
+            case kCtrlF:
+            case kCtrlH:
+            case kCtrlI:
+            case kCtrlE:
+            case kCtrlQ:
+            case kCtrlG:
+            case kCtrlM:
+            case kF1:
+            case kShF6:
+            case kAltF6:
+            case kCtrlF8:
+            case kCtrlF9:
+                // ブロック操作・ノートレコーダー・各種画面 (未実装)
+                break;
+
+            case kBkSPC:
+                if (track_notes) {
+                    // ノートレコーダー (未実装)
+                } else {
+                    get_chunk(pattern, pattern_page, chan, chunk);
+                    const uint8_t cp = count_pos(hpos);
+                    // 4OP の組の相手のトラックのノート (と楽器) も消す
+                    const auto clear_pair = [&](bool clear_instr) {
+                        if (p.is_4op_chan(chan) && in_4op_tracks_lo(chan)) {
+                            get_chunk(pattern, pattern_page, B(chan - 1), chunk2);
+                            chunk2.note = 0;
+                            if (clear_instr) chunk2.instr_def = 0;
+                            put_chunk(pattern, pattern_page, B(chan - 1), chunk2);
+                        } else if (p.is_4op_chan(chan) && in_4op_tracks_hi(chan)) {
+                            get_chunk(pattern, pattern_page, B(chan + 1), chunk2);
+                            chunk2.note = 0;
+                            if (clear_instr) chunk2.instr_def = 0;
+                            put_chunk(pattern, pattern_page, B(chan + 1), chunk2);
+                        }
+                    };
+                    // 0: ノート、1: 楽器、2: エフェクト 1、3: エフェクト 2
+                    int field = -1;
+                    if (command_typing != 0) {
+                        if (cp <= 1) field = 0;
+                        else if (cp <= 3) field = 1;
+                        else if (cp <= 6) field = 2;
+                        else if (cp <= 9) field = 3;
+                    } else if (cp <= 3) {
+                        field = cp;
+                    }
+                    switch (field) {
+                    case 0:
+                        chunk.note = 0;
+                        clear_pair(false);
+                        if (midiboard) {
+                            chunk.instr_def = 0;
+                            clear_pair(true);
+                        }
+                        break;
+                    case 1:
+                        chunk.instr_def = 0;
+                        clear_pair(true);
+                        break;
+                    case 2:
+                        chunk.effect_def = 0;
+                        chunk.effect = 0;
+                        break;
+                    case 3:
+                        chunk.effect_def2 = 0;
+                        chunk.effect2 = 0;
+                        break;
+                    }
+                    put_chunk(pattern, pattern_page, chan, chunk);
+                    switch (backspace_dir) {
+                    case 1:
+                        next_line(page, linefeed);
+                        break;
+                    case 2:
+                        if (page > 0) --page;
+                        else if (cycle_pattern) page = B(last_line);
+                        break;
+                    }
+                }
+                break;
+
+            case kCtPgUP:
+            case kCtPgDN:
+                _save_pattern_to_undo();
+                // ブロックを選択しているときはブロック (ブロックの選択は未実装)
+                transpose_custom_area(fkey == kCtPgUP ? TransposeType::Up : TransposeType::Down, TransposeType::AllIns,
+                                      pattern, pattern, chan, chan, page, page, 1);
+                break;
+
+            case kCtrlZ:
+                _restore_pattern_from_undo();
+                break;
+
+            case kCtrlD:
+                if (!marking) {
+                    {
+                        PlayerUnlock unlock;
+                        DEBUG_INFO();
+                    }
+                    if (tracing) {
+                        tracing = false;
+                        if (run_trace()) return kF10;
+                    }
+                }
+                break;
+
+            case kCtLEFT:
+                if (track_notes) {
+                    // ノートレコーダー (未実装)
+                } else if (!p.debugging && p.play_status == PlayStatus::Playing) {
+                    p.rewind = true;
+                }
+                break;
+
+            case kCtRGHT:
+                if (track_notes) {
+                    // ノートレコーダー (未実装)
+                } else if (p.play_status == PlayStatus::Playing) {
+                    p.fast_forward = true;
+                }
+                break;
+
+            case kCtENTR:
+                if (p.play_single_patt) {
+                    p.current_line = 0;
+                } else {
+                    no_status_refresh = true;
+                    {
+                        PlayerUnlock unlock;
+                        fade_out_playback(false);
+                    }
+                    if (p.current_order < 0x7f && p.play_status != PlayStatus::Stopped) {
+                        if (p.order_at(B(p.current_order + 1)) < 0x80) {
+                            calibrate_player(B(p.current_order + 1), 0, false);
+                        } else if (p.calc_following_order(B(p.current_order + 1)) != -1) {
+                            calibrate_player(B(p.calc_following_order(B(p.current_order + 1))), 0, false);
+                        }
+                    } else if (p.debugging && p.play_status == PlayStatus::Stopped) {
+                        // enter_debug_mode(SUCC(pattern), 0) (デバッグモードは未実装)
+                    }
+                    no_status_refresh = false;
+                }
+                break;
+
+            case kF2: case kShF2: case kCtrlS:
+            case kCtrlF2:
+            case kAltF2:
+            case kF4: case kCtrlA: {
+                PlayerUnlock unlock;
+                process_file_keys(fkey, false);
+                break;
+            }
+
+            case kF3:
+            case kShF3:
+            case kCtrlL: {
+                PlayerUnlock unlock;
+                FILE_open();
+                break;
+            }
+
+            case kF7: {
+                {
+                    PlayerUnlock unlock;
+                    fade_out_playback(false);
+                }
+                stop_playing();
+                if (p.play_status != PlayStatus::Stopped) std::fill(std::begin(p.ai_table), std::end(p.ai_table), uint8_t(0));
+                break;
+            }
+
+            case kF5: case kAltF5: case kShF5:
+            case kF6:
+            case kF8: case kAltF8: case kShF8:
+            case kF9: case kAltF9: case kShF9:
+                trace = process_play_keys(fkey, pattern);
+                break;
+
+            case kF10:
+            case kESC:
+                if (fkey == kESC && track_notes) {
+                    cancel_note_recorder();
+                } else {
+                    bool quit;
+                    {
+                        PlayerUnlock unlock;
+                        quit = QUIT_request();
+                    }
+                    if (quit) return kESC;
+                    if (fkey == kESC) nope = true;
+                }
+                break;
+
+            case kENTER:
+                if (!shift_pressed()) {
+                    nope = true;
+                } else {
+                    // 固定ノートの切り替え (ブロックを選択しているときはブロック。ブロックの選択は未実装)
+                    _save_pattern_to_undo();
+                    get_chunk(pattern, page, chan, chunk);
+                    if (chunk.note >= 1 && chunk.note <= 12 * 8 + 1) chunk.note = B(chunk.note + fixed_note_flag);
+                    else if (chunk.note >= fixed_note_flag + 1 && chunk.note <= fixed_note_flag + 12 * 8 + 1)
+                        chunk.note = B(chunk.note - fixed_note_flag);
+                    put_chunk(pattern, page, chan, chunk);
                 }
                 break;
 
             default:
-                process_channel_keys(fkey);
+                if (!process_channel_keys(fkey) && !scankey(SC_F11) && !scankey(SC_F12)) nope = true;
                 break;
             }
-            break;
-        }
+
+            if (pending_track_dialog) {
+                pending_track_dialog = false;
+                PlayerUnlock unlock;
+                track_onoff_dialog();
+            }
+
+            if (trace && run_trace()) return kF10;
+
+            // --- MIDI ボード ---
+            if ((nope || fkey == kSPACE || fkey == kWeird) && midiboard) {
+                nope = false;
+                const uint8_t curr_ch = track_notes ? track_chan_start : chan;
+                uint8_t track_ch = 0;
+                bool flag = false;
+                uint8_t track_ch_key[21];   // [1..20]
+                std::fill(std::begin(track_ch_key), std::end(track_ch_key), BYTE_NULL);
+                if (!ctrl_pressed() && !alt_pressed()) {
+                    for (int idx = 1; idx <= 29; ++idx) {
+                        if (scankey(board_scancodes[idx - 1])) {
+                            flag = true;
+                            if (!track_notes || !(track_ch < nm_track_chan)) {
+                                track_ch_key[1] = B(idx);
+                                break;
+                            }
+                            ++track_ch;
+                            track_ch_key[track_ch] = B(idx);
+                        }
+                    }
+                }
+
+                const uint16_t fkey_X = fkey;
+                const uint8_t cp = count_pos(hpos);
+                if (fkey == kSPACE || ((fkey == kWeird || (flag && cp == 0)) && !(fkey == kWeird && cp >= 2)) || track_notes) {
+                    const uint8_t temp1 = track_notes ? nm_track_chan : 1;
+                    uint8_t idx2 = 1;
+
+                    if (track_notes && !((command_typing == 0 && cp == 0) || (command_typing != 0 && cp < 2))) {
+                        if (fkey != kSPACE && fkey != kENTER) nope = true;
+                    }
+
+                    if (!nope && fkey != kSPACE) {
+                        for (int idx = 1; idx <= temp1; ++idx) {
+                            const int note = track_ch_key[idx2] + 12 * (current_octave - 1);
+                            if (!(fkey == kWeird || (track_ch_key[idx2] != BYTE_NULL && note >= 1 && note <= 12 * 8 + 1))) continue;
+                            if (fkey == kSPACE ||
+                                (track_notes && mark_lines && p.mark_line != 0 && pattern_page % p.mark_line != 0))
+                                continue;
+
+                            const uint8_t ch = B(curr_ch + idx - 1);
+                            get_chunk(pattern, pattern_page, ch, chunk);
+                            if (fkey != kWeird) {
+                                if (!right_shift_pressed()) chunk.note = B(note);
+                                else chunk.note = B(note + fixed_note_flag);
+                                if (!(chunk.effect_def == ef_TonePortamento || chunk.effect_def == ef_TPortamVolSlide)) {
+                                    const uint16_t pair = get_4op_to_test();
+                                    if (!(pair != 0)) chunk.instr_def = current_inst;
+                                    else if (in_4op_tracks_lo(ch)) chunk.instr_def = LO(pair);
+                                    else chunk.instr_def = HI(pair);
+                                    if (p.is_4op_chan(ch) && in_4op_tracks_lo(ch)) {
+                                        const uint8_t ch2 = B(ch - 1);
+                                        get_chunk(pattern, pattern_page, ch2, chunk2);
+                                        chunk2.note = 0;
+                                        if (!track_notes || track_notes_ins) chunk2.instr_def = HI(pair) != 0 ? HI(pair) : current_inst;
+                                        else chunk2.instr_def = std::max<uint8_t>(p.voice_table[ch2], 1);
+                                        if (p.channel_flag[ch2]) put_chunk(pattern, pattern_page, ch2, chunk2);
+                                    } else if (p.is_4op_chan(ch) && in_4op_tracks_hi(ch)) {
+                                        const uint8_t ch2 = B(ch + 1);
+                                        get_chunk(pattern, pattern_page, ch2, chunk2);
+                                        chunk2.note = 0;
+                                        if (!track_notes || track_notes_ins) chunk2.instr_def = LO(pair) != 0 ? LO(pair) : current_inst;
+                                        else chunk2.instr_def = std::max<uint8_t>(p.voice_table[ch2], 1);
+                                        if (p.channel_flag[ch2]) put_chunk(pattern, pattern_page, ch2, chunk2);
+                                    }
+                                }
+                            } else {
+                                chunk.note = BYTE_NULL;
+                                chunk.instr_def = 0;
+                            }
+
+                            if (p.channel_flag[ch] && !p.ignore_note_once[ch]) {
+                                p.ignore_note_once[ch] = true;
+                                put_chunk(pattern_patt, pattern_page, ch, chunk);
+                                if (chunk.instr_def != 0) p.load_instrument(instr_data_bytes(chunk.instr_def), ch);
+                                if (p.is_4op_chan(ch)) {
+                                    const uint8_t ch2 = in_4op_tracks_lo(ch) ? B(ch - 1) : B(ch + 1);
+                                    get_chunk(pattern_patt, pattern_page, ch2, chunk2);
+                                    p.load_instrument(instr_data_bytes(chunk2.instr_def), ch2);
+                                }
+                                if (chunk.note != BYTE_NULL) p.output_note(chunk.note & 0x7f, chunk.instr_def, ch, true, true);
+                                ++idx2;
+                            }
+                        }
+                    }
+
+                    if (!nope) {
+                        fkey = kSPACE;
+                        if (track_notes) {
+                            // ノートレコーダー (未実装)
+                        } else if (sd.pattern_order[pattern] != BYTE_NULL &&
+                                   !(p.play_status != PlayStatus::Stopped && fkey_X == kSPACE)) {
+                            preview_pattern_line(pattern, page);
+                            next_line(page, linefeed || !lf_in_mboard_mode);
+
+                            if ((left_shift_pressed() || jump_mark_mode) && p.mark_line != 0 && mark_lines) {
+                                const uint8_t old_line = page;
+                                while (page % p.mark_line != 0) {
+                                    if (page < last_line) {
+                                        ++page;
+                                    } else if (cycle_pattern) {
+                                        page = 0;
+                                    } else {
+                                        page = old_line;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            next_line(page, linefeed || !lf_in_mboard_mode);
+                        }
+                    }
+                } else if (!is_navigation_key(fkey)) {
+                    nope = true;
+                    p.debugging = false;
+                }
+            } else if (!is_navigation_key(fkey)) {
+                p.debugging = false;
+            }
+
+            if (track_notes && chan != count_channel(old_hpos)) cancel_note_recorder();
+
+            if (page != old_patt_page || (!linefeed && lf_in_mboard_mode)) {
+                for (int idx = 1; idx <= 20; ++idx) p.ignore_note_once[idx] = false;
+            }
+
+            chan = count_channel(hpos);
+
+            // --- MIDI ボードを使わないときのノートの入力 ---
+            const char key_chr = UpCase(static_cast<char>(LO(fkey)));
+            const auto is_note_letter = [](char c) { return c == 'A' || c == UpCase(b_note) || (c >= 'C' && c <= 'G'); };
+            if (nope && !midiboard && count_pos(hpos) == 0 && is_note_letter(key_chr)) {
+                nope = false;
+                is_setting.append_enabled = false;
+                is_setting.character_set = CharRange('1', '9') | CharSet("a") | CharSet(std::string(1, b_note)) |
+                                           CharRange('c', 'g') | CharSet("A") | CharSet(std::string(1, UpCase(b_note))) |
+                                           CharRange('C', 'F') | CharSet("#-");
+                is_environment.locate_pos = 2;
+                std::string tstr(1, static_cast<char>(LO(fkey)));
+                is_setting.terminate_keys[2] = kTAB;
+
+                do {
+                    // tstr が空になったときの tstr[1] (Pascal の文字列の残り)
+                    const char stale_1st = tstr.empty() ? '\0' : tstr[0];
+                    {
+                        PlayerUnlock unlock;
+                        tstr = InputStr(tstr, B(8 + pos3[1 + (chan - (chan_pos - 1) - 1) * 4]), B(11 + (MAX_PATTERN_ROWS / 2 - 1)), 3, 3,
+                                        pattern_input_bckg + pattern_input, pattern_input_warn + pattern_input);
+                    }
+                    is_setting.append_enabled = true;
+
+                    const char first = tstr.empty() ? stale_1st : tstr[0];
+                    if (is_note_letter(UpCase(first)) &&
+                        (is_environment.keystroke == kENTER || is_environment.keystroke == kTAB)) {
+                        nope = false;
+                        if (tstr.size() == 2) {
+                            if (tstr[1] >= '1' && tstr[1] <= '9') tstr.insert(1, "-");
+                            else if (tstr[1] == '-' || tstr[1] == '#') tstr += Num2str(current_octave, 10);
+                        }
+                        if (tstr.size() == 1) tstr += "-" + Num2str(current_octave, 10);
+
+                        // 見つかったノートを書き込む (4OP の組の相手のノートは消す)
+                        const auto put_note = [&](int temp1) {
+                            nope = true;
+                            get_chunk(pattern, page, chan, chunk);
+                            chunk.note = B(temp1);
+                            put_chunk(pattern, page, chan, chunk);
+                            if (p.is_4op_chan(chan)) {
+                                const uint8_t ch2 = in_4op_tracks_hi(chan) ? B(chan + 1) : B(chan - 1);
+                                get_chunk(pattern, page, ch2, chunk2);
+                                chunk2.note = 0;
+                                put_chunk(pattern, page, ch2, chunk2);
+                            }
+                        };
+                        for (int temp1 = 1; temp1 <= 12 * 8 + 1; ++temp1) {
+                            if (Upper(tstr) == note_layout[temp1]) {
+                                put_note(temp1);
+                                break;
+                            }
+                        }
+                        if (!nope && tstr.size() == 2) {
+                            for (int temp1 = 1; temp1 <= 12 * 8 + 1; ++temp1) {
+                                if (Copy(Upper(tstr), 1, 2) == Copy(note_layout[temp1], 1, 2)) {
+                                    put_note(temp1);
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (nope && linefeed && is_environment.keystroke == kENTER) next_line(page, true);
+                        if (tstr.empty()) nope = true;
+                        if (nope && is_environment.keystroke == kTAB && hpos + 1 <= last_hpos()) ++hpos;
+                    }
+                } while (!(is_environment.keystroke == kESC || nope || _force_program_quit));
+                is_setting.terminate_keys[2] = 0;
+                nope = false;
+            }
+
+            // command_typing = 0 (コマンド入力なし) の楽器・エフェクトの入力は、設定画面とともに追加する
+
+            // --- コマンド入力 (カーソル位置の桁を直接書き換える) ---
+            const auto is_command_chr = [](char c) {
+                return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || std::strchr("&%!@=#$~^`><", c) != nullptr;
+            };
+            const auto is_hex_chr = [](char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'); };
+            const uint8_t cp = count_pos(hpos);
+            if (!marking && nope && command_typing != 0 && cp > 0 && key_chr != '\0' && is_command_chr(key_chr)) {
+                const char key_raw = static_cast<char>(LO(fkey));
+                const int key_dec = Str2num(std::string(1, key_raw), 10);
+                const int key_hex = Str2num(std::string(1, key_raw), 16);
+                // Shift を押したまま入力できるエフェクト
+                const auto shift_ok = [&]() {
+                    switch (FX(key_raw)) {
+                    case ef_Extended2: case ef_Extended3: case ef_SetGlobalVolume:
+                    case ef_ExtraFineArpeggio: case ef_ExtraFineVibrato: case ef_ExtraFineTremolo:
+                    case ef_ForceInsVolume: case ef_SwapArpeggio: case ef_SwapVibrato:
+                    case ef_SetCustomSpeedTab: case ef_GlobalFSlideUp: case ef_GlobalFSlideDown:
+                        return true;
+                    }
+                    return false;
+                };
+                // 書き込むチャンネル (ノートレコーダーのときは複数)
+                const int nm = track_notes ? nm_track_chan : 1;
+                const int ch_start = track_notes ? track_chan_start : chan;
+
+                switch (cp) {
+                case 1:
+                    if (!(key_chr >= '1' && key_chr <= '9')) {
+                        nope = false;
+                    } else {
+                        nope = true;
+                        get_chunk(pattern, page, chan, chunk);
+                        if (chunk.note >= 1 && chunk.note <= 12 * 8 + 1)
+                            chunk.note = B((chunk.note - 1) % 12 + 1 + 12 * (key_dec - 1));
+                        else if (chunk.note >= fixed_note_flag + 1 && chunk.note <= fixed_note_flag + 12 * 8 + 1)
+                            chunk.note = B((chunk.note - 1) % 12 + 1 + 12 * (key_dec - 1) + fixed_note_flag);
+                        if ((chunk.note >= 1 && chunk.note <= 12 * 8 + 1) ||
+                            (chunk.note >= fixed_note_flag + 1 && chunk.note <= fixed_note_flag + 12 * 8 + 1))
+                            put_chunk(pattern, page, chan, chunk);
+                        else
+                            nope = false;
+                    }
+                    break;
+
+                case 2:
+                case 3:
+                    if (!is_hex_chr(key_chr)) {
+                        nope = false;
+                    } else {
+                        nope = true;
+                        for (int idx = 1; idx <= nm; ++idx) {
+                            const uint8_t ch = B(ch_start + idx - 1);
+                            if (track_notes && !p.channel_flag[ch]) continue;
+                            get_chunk(pattern, page, ch, chunk);
+                            if (track_notes && idx > 1) {
+                                get_chunk(pattern, page, track_chan_start, chunk2);
+                                chunk.instr_def = chunk2.instr_def;
+                            }
+                            if (cp == 2) chunk.instr_def = B(key_hex * 0x10 + (chunk.instr_def & 0x0f));
+                            else chunk.instr_def = B(key_hex + (chunk.instr_def & 0xf0));
+                            if (!shift_pressed()) {
+                                put_chunk(pattern, page, ch, chunk);
+                                if (chunk.instr_def != 0 && update_ins) {
+                                    current_inst = chunk.instr_def;
+                                    instrum_page = current_inst;
+                                    reset_marked_instruments();
+                                }
+                            } else {
+                                nope = false;
+                            }
+                        }
+                    }
+                    break;
+
+                case 4:
+                case 5:
+                case 6:
+                case 7:
+                case 8:
+                case 9: {
+                    nope = true;
+                    const bool fx2 = cp >= 7;
+                    const int col = fx2 ? cp - 3 : cp;   // 4: 種類、5: 上位桁、6: 下位桁
+                    if (track_notes && nm_track_chan > 1) _save_pattern_to_undo();
+                    for (int idx = 1; idx <= nm; ++idx) {
+                        const uint8_t ch = B(ch_start + idx - 1);
+                        if (track_notes && !p.channel_flag[ch]) continue;
+                        get_chunk(pattern, page, ch, chunk);
+                        uint8_t& def = fx2 ? chunk.effect_def2 : chunk.effect_def;
+                        uint8_t& val = fx2 ? chunk.effect2 : chunk.effect;
+                        if (track_notes && idx > 1) {
+                            get_chunk(pattern, page, track_chan_start, chunk2);
+                            def = fx2 ? chunk2.effect_def2 : chunk2.effect_def;
+                            val = fx2 ? chunk2.effect2 : chunk2.effect;
+                        }
+                        switch (col) {
+                        case 4:
+                            def = FX(key_raw);
+                            if ((def == ef_SetSpeed || def == ef_SetTempo) && val == 0) {
+                                if (def == ef_SetSpeed) val = sd.speed;
+                                else val = sd.tempo;
+                            }
+                            break;
+                        case 5:
+                            if (!is_hex_chr(key_chr)) nope = false;
+                            else val = B(key_hex * 0x10 + (val & 0x0f));
+                            break;
+                        case 6:
+                            if (!is_hex_chr(key_chr)) nope = false;
+                            else val = B(key_hex + (val & 0xf0));
+                            break;
+                        }
+                        if (correct_range(def, val) && !(shift_pressed() && !shift_ok())) put_chunk(pattern, page, ch, chunk);
+                        else nope = false;
+                    }
+                    break;
+                }
+                }
+
+                if (command_typing == 2 && (cp == 2 || cp == 5 || cp == 8)) {
+                    ++hpos;
+                } else if (nope && linefeed) {
+                    if (command_typing == 2 && (cp == 3 || cp == 6 || cp == 9)) --hpos;
+                    next_line(page, linefeed);
+                }
+            }
+
+            // Enter (ウィンドウの切り替え) は未実装
         }
 
-        if (pending_track_dialog) {
-            pending_track_dialog = false;
-            track_onoff_dialog();
-        }
-
-        if (trace) {
-            const uint16_t temp1 = PATTERN_trace();
-            if (temp1 == kF10 || _force_program_quit) return kF10;
-        }
         draw_screen();
+        process_F11_F12();
     }
 }
 

@@ -553,6 +553,43 @@ void A2Player::set_ins_data(uint8_t ins, uint8_t chan)
     ai_table[ins] = 1;
 }
 
+void A2Player::load_instrument(const uint8_t* data, uint8_t chan)
+{
+    FmParameterTable& f = fmpar_table[chan];
+    f.connect = data[10] & 1;
+    f.feedb = (data[10] >> 1) & 7;
+    f.multipM = data[0] & 0x0f;
+    f.kslM = data[2] >> 6;
+    f.tremM = data[0] >> 7;
+    f.vibrM = (data[0] >> 6) & 1;
+    f.ksrM = (data[0] >> 4) & 1;
+    f.sustM = (data[0] >> 5) & 1;
+    f.multipC = data[1] & 0x0f;
+    f.kslC = data[3] >> 6;
+    f.tremC = data[1] >> 7;
+    f.vibrC = (data[1] >> 6) & 1;
+    f.ksrC = (data[1] >> 4) & 1;
+    f.sustC = (data[1] >> 5) & 1;
+
+    f.adsrw_car.attck = data[5] >> 4;
+    f.adsrw_mod.attck = data[4] >> 4;
+    f.adsrw_car.dec = data[5] & 0x0f;
+    f.adsrw_mod.dec = data[4] & 0x0f;
+    f.adsrw_car.sustn = data[7] >> 4;
+    f.adsrw_mod.sustn = data[6] >> 4;
+    f.adsrw_car.rel = data[7] & 0x0f;
+    f.adsrw_mod.rel = data[6] & 0x0f;
+    f.adsrw_car.wform = data[9] & 0x07;
+    f.adsrw_mod.wform = data[8] & 0x07;
+
+    panning_table[chan] = data[11] & 3;
+    volume_table[chan] = concw(data[2] & 0x3f, data[3] & 0x3f);
+
+    update_modulator_adsrw(chan);
+    update_carrier_adsrw(chan);
+    update_fmpar(chan);
+}
+
 void A2Player::update_modulator_adsrw(uint8_t chan)
 {
     const AdsrwState& m = fmpar_table[chan].adsrw_mod;
