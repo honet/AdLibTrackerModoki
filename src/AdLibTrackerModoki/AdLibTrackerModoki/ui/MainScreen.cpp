@@ -1999,6 +1999,51 @@ void toggle_channel(uint8_t temp)
     }
 }
 
+uint8_t chpos = 1;
+
+// トラック 10..20 の ON/OFF を選ぶダイアログ (Alt+0 で表示中のトラックに 10 がない場合など)
+void track_onoff_dialog()
+{
+    std::string temps;
+    {
+        PlayerLock lock;
+        if (!P().percussion_mode) temps = "1~0~$1~1~$1~2~$1~3~$1~4~$1~5~$1~6~$1~7~$1~8~$1~9~$2~0~$";
+        else temps = "1~0~$1~1~$1~2~$1~3~$1~4~$1~5~$16 ~B~D$17 ~S~D$18 ~T~T$19 T~C~$20 ~H~H$";
+        temps = FlipStr(temps);
+        for (int temp = 10; temp <= 20; ++temp) {
+            if (temp > songdata().nm_tracks) {
+                for (int i = 0; i < 2; ++i) {
+                    const size_t p = temps.find('~');
+                    if (p != std::string::npos) temps.erase(p, 1);
+                }
+            }
+        }
+        temps = FlipStr(temps);
+    }
+    if (temps.find('~') == std::string::npos) return;
+
+    chpos = Dialog("USE CURSOR KEYS OR DiRECTLY PRESS HOTKEY TO TOGGLE TRACK ON/OFF$", temps, " TRACK ON/OFF ", chpos);
+    if (dl_environment.keystroke == kESC) return;
+
+    PlayerLock lock;
+    A2Player& p = P();
+    const uint8_t chan = B(9 + chpos);
+    p.channel_flag[chan] = !p.channel_flag[chan];
+    if (!p.channel_flag[chan]) p.reset_chan_data(chan);
+    if (p.is_4op_chan(chan)) {
+        if (chan == 10 || chan == 12 || chan == 14) {
+            p.channel_flag[chan + 1] = p.channel_flag[chan];
+            if (!p.channel_flag[chan + 1]) p.reset_chan_data(B(chan + 1));
+        } else if (chan == 11 || chan == 13 || chan == 15) {
+            p.channel_flag[chan - 1] = p.channel_flag[chan];
+            if (!p.channel_flag[chan - 1]) p.reset_chan_data(B(chan - 1));
+        }
+    }
+}
+
+// Alt+0 でトラックを選ぶダイアログが必要になった (ロックを外してから track_onoff_dialog を呼ぶ)
+bool pending_track_dialog = false;
+
 // トレース中・編集中で共通のトラック操作キー
 void process_channel_keys(uint16_t fkey)
 {
@@ -2042,8 +2087,866 @@ void process_channel_keys(uint16_t fkey)
                 if (temp <= sd.nm_tracks) toggle_channel(temp);
             } else if (shift_pressed() || (10 >= chan_pos && 10 <= chan_pos + MAX_TRACKS - 1) || sd.nm_tracks == 10) {
                 toggle_channel(10);
+            } else {
+                // それ以外はトラックを選ぶダイアログを出す (ロックを外して呼ぶ)
+                pending_track_dialog = true;
             }
-            // それ以外はトラックを選ぶダイアログを出す (ダイアログの実装とともに対応する)
+        }
+        break;
+    }
+}
+
+// Ctrl+ENTER: 次のオーダーへ進む (単独パターン再生中はパターンの先頭へ戻る)。ロックを外して呼ぶ。
+void jump_to_next_order()
+{
+    {
+        PlayerLock lock;
+        A2Player& p = P();
+        if (p.play_single_patt) {
+            p.current_line = 0;
+            PATTERN_ORDER_page_refresh(0);
+            PATTERN_page_refresh(0);
+            return;
+        }
+    }
+
+    no_status_refresh = true;
+    fade_out_playback(false);
+    {
+        PlayerLock lock;
+        A2Player& p = P();
+        if (p.current_order < 0x7f && p.play_status != PlayStatus::Stopped) {
+            if (p.order_at(B(p.current_order + 1)) < 0x80) {
+                calibrate_player(B(p.current_order + 1), 0, false);
+            } else if (p.calc_following_order(B(p.current_order + 1)) != -1) {
+                calibrate_player(B(p.calc_following_order(B(p.current_order + 1))), 0, false);
+            }
+        } else if (p.calc_following_order(0) != -1) {
+            calibrate_player(B(p.calc_following_order(0)), 0, false);
+        }
+    }
+    no_status_refresh = false;
+}
+
+// ---------------------------------------------------------------------------
+// デバッグ情報 (adt2extn.pas の DEBUG_INFO)
+// ---------------------------------------------------------------------------
+
+// 配色 (typcons1.inc の既定値)
+constexpr uint8_t debug_info_bckg = 0x40;
+constexpr uint8_t debug_info_bckg2 = 0x90;
+constexpr uint8_t debug_info_border = 0x05;
+constexpr uint8_t debug_info_border2 = 0x0f;
+constexpr uint8_t debug_info_title = 0x0b;
+constexpr uint8_t debug_info_topic = 0x0e;
+constexpr uint8_t debug_info_txt = 0x07;
+constexpr uint8_t debug_info_hi_txt = 0x0f;
+constexpr uint8_t debug_info_txt_hid = 0x06;
+constexpr uint8_t debug_info_mod = 0x02;
+constexpr uint8_t debug_info_hi_mod = 0x0a;
+constexpr uint8_t debug_info_car = 0x03;
+constexpr uint8_t debug_info_hi_car = 0x0b;
+constexpr uint8_t debug_info_perc = 0x08;
+constexpr uint8_t debug_info_bpm = 0x08;
+
+// typcons2.inc
+const char* const debug_win_str1[3] = {
+    "     TRACK     ~\xB3~          iNSTRUMENT          ~\xB3~NOTE~\xB3 ~FX N\xF9" "1~ \xB3 ~FX N\xF9" "2~ \xB3~FREQ~\xB3 ~VOL",
+    "\xC4\xC4\xC2\xC4\xC4\xC2\xC4\xC4\xC4\xC2\xC4\xC4\xC2\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC2\xC4\xC4",
+    "\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4",
+};
+const char* const debug_win_str2[3] = {
+    "TRACK~\xB3~iNS~\xB3~NOTE~\xB3 ~FX N\xF9" "1~ \xB3 ~FX N\xF9" "2~ \xB3~FREQ~\xB3~CN/FB/ADSR/WF/KSL/MUL/TRM/ViB/KSR/EG~\xB3 ~VOL",
+    "\xC4\xC4\xC2\xC4\xC4\xC5\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC2\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC2\xC4\xC4",
+    "\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4",
+};
+const char* const debug_win_str3[3] = {
+    "TRACK~\xB3~iNS~\xB3~NOTE~\xB3 ~FX N\xF9" "1~ \xB3 ~FX N\xF9" "2~ \xB3~MACRO FM-REG~ \xB3~MACRO ARPG~\xB3~MACRO ViBR ~\xB3~FREQ~\xB3 ~VOL",
+    "\xC4\xC4\xC2\xC4\xC4\xC5\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC4\xC4\xC5\xC4\xC4\xC2\xC4\xC4",
+    "\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC4\xC4\xC1\xC4\xC4\xC1\xC4\xC4",
+};
+
+// typcons1.inc
+const char* const macro_retrig_str[8] = { "\xFA", "\x9F", "\x0B", "\xFA", "\x0D", "\xFA", "\xFA", "\xFA" };
+
+// adt2extn.pas (DEBUG_INFO の前の定数)
+const char _perc_char[5] = { '\xA0', '\xA1', '\xA2', '\xA3', '\xA4' };   // [1..5]
+const char* const _panning_str[4] = { "\x15\x16", "\x15`\x16`", "`\x15`\x16", "`\x15\x16`" };
+const char* const _connection[2] = { "FM", "AM" };
+const char _off_on[4][2] = { { '\xFA', 'T' }, { '\xFA', 'V' }, { '\xFA', 'K' }, { '\xFA', 'S' } };   // [1..4, 0..1]
+const char* const _win_title[2] = { " DEBUG iNFO ", "" };
+const std::string _contxt_str = " LSHiFT/RSHiFT \xC4\x10 TOGGLE DETAiLS ";
+
+// ?debug_info?details_flag (0: 概要, 1: 詳細, 2: マクロの詳細)
+uint8_t debug_info_details_flag = 0;
+
+const std::string NOFX = "        ";
+
+std::string effect_str(uint8_t effect_def, uint8_t effect, uint8_t effect_def2)
+{
+    const bool up = effect / 16 != 0;
+    switch (effect_def) {
+    case ef_Arpeggio: return effect != 0 ? "Arpeggio" : NOFX;
+    case ef_VolSlide: return up ? "VolSld\x18 " : "VolSld\x19 ";
+    case ef_VolSlideFine: return up ? "VolSld\x12 " : "VolSld\x17 ";
+    case ef_TPortamVolSlide: return up ? "Por\x0DVSl\x18" : "Por\x0DVSl\x19";
+    case ef_VibratoVolSlide: return up ? "VibrVSl\x18" : "VibrVSl\x19";
+    case ef_TPortamVSlideFine: return up ? "Por\x0DVSl\x12" : "Por\x0DVSl\x17";
+    case ef_VibratoVSlideFine: return up ? "VibrVSl\x12" : "VibrVSl\x17";
+    case ef_ArpggVSlide: return up ? "ArpgVSl\x18" : "ArpgVSl\x19";
+    case ef_ArpggVSlideFine: return up ? "ArpgVSl\x12" : "ArpgVSl\x17";
+    case ef_SetWaveform:
+        if (!(effect % 16 <= 7)) return "SetW\x1A" "Car";
+        if (!(effect / 16 <= 7)) return "SetW\x1AMod";
+        return "SetWform";
+    case ef_FSlideUpVSlide: return up ? "Por\x18VSl\x18" : "Por\x18VSl\x19";
+    case ef_FSlUpVSlF: return up ? "Por\x18VSl\x12" : "Por\x18VSl\x17";
+    case ef_FSlideDownVSlide: return up ? "Por\x19VSl\x18" : "Por\x19VSl\x19";
+    case ef_FSlDownVSlF: return up ? "Por\x19VSl\x12" : "Por\x19VSl\x17";
+    case ef_FSlUpFineVSlide: return up ? "Por\x12VSl\x18" : "Por\x12VSl\x19";
+    case ef_FSlUpFineVSlF: return up ? "Por\x12VSl\x12" : "Por\x12VSl\x17";
+    case ef_FSlDownFineVSlide: return up ? "Por\x17VSl\x18" : "Por\x17VSl\x19";
+    case ef_FSlDownFineVSlF: return up ? "Por\x17VSl\x12" : "Por\x17VSl\x17";
+    case ef_FSlideUp: return "Porta\x18  ";
+    case ef_FSlideDown: return "Porta\x19  ";
+    case ef_TonePortamento: return "Porta\x0D  ";
+    case ef_Vibrato: return "Vibrato ";
+    case ef_FSlideUpFine: return "Porta\x12  ";
+    case ef_FSlideDownFine: return "Porta\x17  ";
+    case ef_SetCarrierVol: return "SetCVol ";
+    case ef_SetModulatorVol: return "SetMVol ";
+    case ef_PositionJump: return "PosJump ";
+    case ef_SetInsVolume: return "SetVol  ";
+    case ef_PatternBreak: return "PatBreak";
+    case ef_SetTempo: return "SetTempo";
+    case ef_SetSpeed: return "SetSpeed";
+    case ef_RetrigNote: return "Retrig\x0D ";
+    case ef_MultiRetrigNote: return "MulRetr\x0D";
+    case ef_Tremolo: return "Tremolo ";
+    case ef_Tremor: return "Tremor  ";
+    case ef_SetGlobalVolume: return "SetGlVol";
+    case ef_ForceInsVolume: return "ForceVol";
+
+    case ef_Extended:
+        switch (effect / 16) {
+        case ef_ex_SetTremDepth: return "SetTremD";
+        case ef_ex_SetVibDepth: return "SetVibrD";
+        case ef_ex_SetAttckRateM: return "[A]DSR\x1AM";
+        case ef_ex_SetDecayRateM: return "A[D]SR\x1AM";
+        case ef_ex_SetSustnLevelM: return "AD[S]R\x1AM";
+        case ef_ex_SetRelRateM: return "ADS[R]\x1AM";
+        case ef_ex_SetAttckRateC: return "[A]DSR\x1A" "C";
+        case ef_ex_SetDecayRateC: return "A[D]SR\x1A" "C";
+        case ef_ex_SetSustnLevelC: return "AD[S]R\x1A" "C";
+        case ef_ex_SetRelRateC: return "ADS[R]\x1A" "C";
+        case ef_ex_SetFeedback: return "SetFeedb";
+        case ef_ex_PatternLoop: return "PatLoop ";
+        case ef_ex_PatternLoopRec: return "PatLoopR";
+        case ef_ex_SetPanningPos:
+            switch (effect % 16) {
+            case 0: return "SetPan\x1A" "C";
+            case 1: return "SetPan\x1AL";
+            case 2: return "SetPan\x1AR";
+            default: return NOFX;   // オリジナルは結果が未定義
+            }
+        case ef_ex_ExtendedCmd:
+            switch (effect % 16) {
+            case ef_ex_cmd_MKOffLoopDi: return "\x0CLoopOff";
+            case ef_ex_cmd_MKOffLoopEn: return "\x0CLoopOn ";
+            case ef_ex_cmd_TPortaFKdis: return "Porta\x0DK-";
+            case ef_ex_cmd_TPortaFKenb: return "Porta\x0DK+";
+            case ef_ex_cmd_RestartEnv: return "RstrtEnv";
+            case ef_ex_cmd_4opVlockOff: return "VLock\x04\x03-";
+            case ef_ex_cmd_4opVlockOn: return "VLock\x04\x03+";
+            case ef_ex_cmd_ForceBpmSld: return "BpmSlide";
+            default: return NOFX;   // オリジナルは結果が未定義
+            }
+        case ef_ex_ExtendedCmd2:
+            switch (effect % 16) {
+            case ef_ex_cmd2_RSS: return "RelSS   ";
+            case ef_ex_cmd2_ResetVol: return "ResetVol";
+            case ef_ex_cmd2_LockVol: return "VolLock+";
+            case ef_ex_cmd2_UnlockVol: return "VolLock-";
+            case ef_ex_cmd2_LockVP: return "LockVP+ ";
+            case ef_ex_cmd2_UnlockVP: return "LockVP- ";
+            case ef_ex_cmd2_VSlide_car: return "VSld\x1A" "Car";
+            case ef_ex_cmd2_VSlide_mod: return "VSld\x1AMod";
+            case ef_ex_cmd2_VSlide_def: return "VSld\x1A" "Def";
+            case ef_ex_cmd2_LockPan: return "PanLock+";
+            case ef_ex_cmd2_UnlockPan: return "PanLock-";
+            case ef_ex_cmd2_VibrOff: return "VibrOff ";
+            case ef_ex_cmd2_TremOff: return "TremOff ";
+            case ef_ex_cmd2_FVib_FGFS:
+                return (effect_def2 != ef_GlobalFSlideUp && effect_def2 != ef_GlobalFSlideDown) ? "VibrFine" : "GlPortaF";
+            case ef_ex_cmd2_FTrm_XFGFS:
+                return (effect_def2 != ef_GlobalFSlideUp && effect_def2 != ef_GlobalFSlideDown) ? "TremFine" : "GlPortXF";
+            case ef_ex_cmd2_NoRestart: return "ArpVibNR";
+            default: return NOFX;
+            }
+        default: return NOFX;
+        }
+
+    case ef_Extended2:
+        switch (effect / 16) {
+        case ef_ex2_PatDelayFrame: return "PatDelF ";
+        case ef_ex2_PatDelayRow: return "PatDelR ";
+        case ef_ex2_NoteDelay: return "Delay\x0D  ";
+        case ef_ex2_NoteCut: return "Cut\x0D    ";
+        case ef_ex2_GlVolSlideUp: return "GlVolSl\x18";
+        case ef_ex2_GlVolSlideDn: return "GlVolSl\x19";
+        case ef_ex2_GlVolSlideUpF: return "GlVolSl\x12";
+        case ef_ex2_GlVolSlideDnF: return "GlVolSl\x17";
+        case ef_ex2_FineTuneUp: return "FTune\x18  ";
+        case ef_ex2_FineTuneDown: return "FTune\x19  ";
+        case ef_ex2_GlVolSldUpXF: return "GVolSl\x0C\x12";
+        case ef_ex2_GlVolSldDnXF: return "GVolSl\x0C\x17";
+        case ef_ex2_VolSlideUpXF: return "VolSld\x0C\x12";
+        case ef_ex2_VolSlideDnXF: return "VolSld\x0C\x17";
+        case ef_ex2_FreqSlideUpXF: return "Porta\x0C\x12 ";
+        case ef_ex2_FreqSlideDnXF: return "Porta\x0C\x17 ";
+        default: return NOFX;
+        }
+
+    case ef_SwapArpeggio: return "ArpT\x1A" + byte2hex(effect) + " ";
+    case ef_SwapVibrato: return "VibT\x1A" + byte2hex(effect) + " ";
+
+    case ef_Extended3:
+        switch (effect / 16) {
+        case ef_ex3_SetConnection: return effect % 16 == 0 ? "Conct\x1A" "FM" : "Conct\x1A" "AM";
+        case ef_ex3_SetMultipM: return "Multip\x1AM";
+        case ef_ex3_SetKslM: return "KSL\x1AM   ";
+        case ef_ex3_SetTremoloM: return "Trem\x1AM  ";
+        case ef_ex3_SetVibratoM: return "Vibr\x1AM  ";
+        case ef_ex3_SetKsrM: return "KSR\x1AM   ";
+        case ef_ex3_SetSustainM: return "Sustn\x1AM ";
+        case ef_ex3_SetMultipC: return "Multip\x1A" "C";
+        case ef_ex3_SetKslC: return "KSL\x1A" "C   ";
+        case ef_ex3_SetTremoloC: return "Trem\x1A" "C  ";
+        case ef_ex3_SetVibratoC: return "Vibr\x1A" "C  ";
+        case ef_ex3_SetKsrC: return "KSR\x1A" "C   ";
+        case ef_ex3_SetSustainC: return "Sustn\x1A" "C ";
+        default: return NOFX;   // オリジナルは結果が未定義
+        }
+
+    case ef_ExtraFineArpeggio: return "Arpggio\x0C";
+    case ef_ExtraFineVibrato: return "Vibrato\x0C";
+    case ef_ExtraFineTremolo: return "Tremolo\x0C";
+    case ef_SetCustomSpeedTab: return "SetCusST";
+    case ef_GlobalFSlideUp: return "GlPorta\x18";
+    case ef_GlobalFSlideDown: return "GlPorta\x19";
+    default: return NOFX;
+    }
+}
+
+// note_layout の範囲外 (キーオフ 0xFF など) はオリジナルでは配列の後ろのメモリを読むが、ここでは空欄にする
+std::string note_layout_at(int index)
+{
+    return (index >= 0 && index <= 12 * 8 + 1) ? std::string(note_layout[index]) : std::string("   ");
+}
+
+std::string note_str(uint8_t note)
+{
+    if (note < 100) return note_layout_at(note) + " ";
+    if ((note & 0x7f) != 0) return note_layout_at(note & 0x7f) + "\x0C";
+    return note_layout_at(0) + " ";
+}
+
+std::string cstr2str(std::string str)
+{
+    const size_t n = str.size();
+    for (size_t temp = 1; temp <= n; ++temp) {
+        if (temp <= str.size() && str[temp - 1] == '~') str.erase(temp - 1, 1);
+    }
+    return str;
+}
+
+std::string _macro_str(const std::string& str, int null_byte)
+{
+    if (null_byte != 0) return str;
+    return ExpStrL("", C3StrLen(str), ' ');
+}
+
+std::string _freq_slide_str(int value)
+{
+    if (value == 0) return "`\x0A`";
+    if (value > 0) return "\x18";
+    return "\x19";
+}
+
+constexpr uint16_t MACRO_IDLE = 0x0fff;
+const char* const note_keyoff_str[2] = { "`\x0C`", "\x0C" };
+
+std::string _macro_pos_str_fm(uint16_t pos, uint16_t len, uint8_t keyoff_pos, uint8_t duration, uint8_t retrig_note,
+                              int freq_slide)
+{
+    const char* keyoff = note_keyoff_str[(pos >= keyoff_pos && keyoff_pos > 0) ? 1 : 0];
+    const char* retrig = macro_retrig_str[retrig_note & 7];
+    if (pos <= 255) {
+        return byte2hex(B(pos)) + "/" + byte2hex(B(len)) + ":" + byte2hex(duration) + " " + retrig + _freq_slide_str(freq_slide) +
+               keyoff + "`\xFB`";
+    }
+    if (pos == MACRO_IDLE) return "\xFA\xFA\x0C\xFA\xFA:\xFA\xFA     ";
+    return byte2hex(B(len)) + "/" + byte2hex(B(len)) + ":" + byte2hex(duration) + " " + retrig + _freq_slide_str(freq_slide) +
+           keyoff + "\xFB";
+}
+
+std::string _macro_pos_str_av(uint16_t pos, uint16_t len, uint8_t keyoff_pos, const std::string& slide_str)
+{
+    const char* keyoff = note_keyoff_str[(pos >= keyoff_pos && keyoff_pos > 0) ? 1 : 0];
+    if (pos <= 255) return byte2hex(B(pos)) + "/" + byte2hex(B(len)) + " " + slide_str + keyoff;
+    if (pos == MACRO_IDLE) return "\xFA\xFA\x0C\xFA\xFA " + slide_str + keyoff;
+    return byte2hex(B(len)) + "/" + byte2hex(B(len)) + " " + slide_str + keyoff;
+}
+
+// 曲データの中だけを読む (オリジナルは範囲外の添字でも読むが、曲データの外は 0 とする)
+template <class T>
+T songdata_read(uintptr_t addr)
+{
+    const auto lo = reinterpret_cast<uintptr_t>(&songdata());
+    const uintptr_t hi = lo + sizeof(FixedSongData);
+    T value{};
+    if (addr >= lo && addr + sizeof(T) <= hi) std::memcpy(&value, reinterpret_cast<const void*>(addr), sizeof(T));
+    return value;
+}
+
+// instr_macros[table] / instr_macros[table].data[pos] / macro_table[table] の位置 (添字は 1 始まり)
+uintptr_t instr_macros_addr(int table)
+{
+    return reinterpret_cast<uintptr_t>(songdata().instr_macros) + static_cast<intptr_t>(table - 1) * sizeof(RegisterTable);
+}
+
+uintptr_t instr_macros_data_addr(int table, int pos)
+{
+    return instr_macros_addr(table) + offsetof(RegisterTable, data) + static_cast<intptr_t>(pos - 1) * sizeof(RegisterTableDef);
+}
+
+uintptr_t macro_table_addr(int table)
+{
+    return reinterpret_cast<uintptr_t>(songdata().macro_table) + static_cast<intptr_t>(table - 1) * sizeof(MacroTable);
+}
+
+// adt2unit.pas の calc_max_speedup
+uint16_t calc_max_speedup(uint8_t tempo)
+{
+    if (tempo == 0) return 1;
+    constexpr int MAX_IRQ_FREQ = 1000;
+    uint16_t result = static_cast<uint16_t>(MAX_IRQ_FREQ / tempo);
+    int32_t temp;
+    do {
+        if (tempo == 18 && P().timer_fix) temp = static_cast<int32_t>((tempo + 0.2) * 20);
+        else temp = 250;
+        while (temp % (tempo * result) != 0) ++temp;
+        if (temp <= MAX_IRQ_FREQ) ++result;
+    } while (temp <= MAX_IRQ_FREQ);
+    return static_cast<uint16_t>(result - 1);
+}
+
+// adt2unit.pas の calc_realtime_bpm_speed (sdl_timer_slowdown = 2)
+double calc_realtime_bpm_speed(uint8_t tempo, uint8_t speed, uint8_t rows_per_beat)
+{
+    const A2Player& p = P();
+    if (speed == 0 || rows_per_beat == 0 || p.IRQ_freq == 0) return 0;
+    return tempo * 60.0 / speed / rows_per_beat *
+           (1 + static_cast<double>(p.IRQ_freq_shift + p.playback_speed_shift) / p.IRQ_freq - 2 / 100.0);
+}
+
+// デバッグ情報の 1 回分の表示 (ロックを取った状態で呼ぶ)
+void debug_info_refresh(uint8_t xstart, uint8_t ystart, bool _ctrl_alt_flag, bool _details_flag, bool _macro_details_flag)
+{
+    A2Player& p = P();
+    FixedSongData& sd = songdata();
+    const uint8_t nm = sd.nm_tracks;
+    const uint8_t _win_attr[2] = { B(debug_info_bckg + debug_info_border2), B(debug_info_bckg + debug_info_border) };
+    const bool stopped = p.play_status == PlayStatus::Stopped;
+
+    if (_ctrl_alt_flag) {
+        const int contxt_len = static_cast<int>(_contxt_str.size());
+        if (!_details_flag) {
+            ShowStr(screen_ptr, B(xstart + 83 - contxt_len), B(ystart + nm + 6), _contxt_str,
+                    B(debug_info_bckg + debug_info_topic));
+        } else {
+            ShowStr(screen_ptr, B(xstart + 83 - contxt_len), B(ystart + nm + 6),
+                    ExpStrL("", B(contxt_len), '\xCD'), B(debug_info_bckg + debug_info_border));
+        }
+    }
+
+    const char* const* win_str = !_details_flag ? debug_win_str1 : (!_macro_details_flag ? debug_win_str2 : debug_win_str3);
+    const char* page_str = !_details_flag ? " [~1/3~] " : (!_macro_details_flag ? " [~2/3~] " : " [~3/3~] ");
+    ShowCStr(screen_ptr, B(xstart + 2), B(ystart + 1), win_str[0], B(debug_info_bckg + debug_info_topic),
+             B(debug_info_bckg + debug_info_border));
+    ShowStr(screen_ptr, B(xstart + 2), B(ystart + 2), win_str[1], B(debug_info_bckg + debug_info_border));
+    ShowStr(screen_ptr, B(xstart + 2), B(ystart + nm + 3), win_str[2], B(debug_info_bckg + debug_info_border));
+    if (!_ctrl_alt_flag) {
+        ShowCStr(screen_ptr, B(xstart + 76), B(ystart + nm + 6), page_str, _win_attr[_ctrl_alt_flag ? 1 : 0],
+                 B(debug_info_bckg + debug_info_topic));
+    }
+
+    std::string temps, temps2, temps3;
+    if (!p.play_single_patt && !p.replay_forbidden && p.repeat_pattern) temps = "~\x13~";
+    else temps = "\x13";
+
+    const uint8_t txt = B(debug_info_bckg + debug_info_txt);
+    const uint8_t hi_txt = B(debug_info_bckg + debug_info_hi_txt);
+    if (!p.play_single_patt) {
+        ShowCStr(screen_ptr, B(xstart + 2), B(ystart + nm + 4),
+                 "~ORDER/PATTERN/ROW~  " + byte2hex(p.current_order) + "/" + byte2hex(p.current_pattern) + "/" +
+                     byte2hex(p.current_line),
+                 txt, hi_txt);
+    } else {
+        ShowCStr(screen_ptr, B(xstart + 2), B(ystart + nm + 4),
+                 "~ORDER/PATTERN/ROW~  --/" + byte2hex(p.current_pattern) + "/" + byte2hex(p.current_line), txt, hi_txt);
+    }
+    ShowCStr(screen_ptr, B(xstart + 30), B(ystart + nm + 4), temps, B(debug_info_bckg + debug_info_txt_hid), txt);
+
+    if (p.tempo == 18 && p.timer_fix) temps = Num2str(p.tempo, 10) + "\x05\xAE";
+    else temps = Num2str(p.tempo, 10) + "\xAE";
+
+    if (p._macro_speedup() == 1) {
+        temps2 = temps;
+    } else {
+        const uint16_t temp = calc_max_speedup(p.tempo);
+        if (p._macro_speedup() <= temp) temps2 = Num2str(p.tempo * p._macro_speedup(), 10) + "\xAE";
+        else temps2 = Num2str(p.tempo * temp, 10) + "\xAE";
+    }
+    ShowCStr(screen_ptr, B(xstart + 2), B(ystart + nm + 5),
+             "~SPEED/TEMPO/MACROS~ " + byte2hex(p.speed) + "/" + ExpStrR(temps + "/" + temps2, 9, ' '), txt, hi_txt);
+
+    temps = p.current_tremolo_depth == 0 ? "1dB" : "4.8dB";
+    temps2 = p.current_vibrato_depth == 0 ? "7%    " : "14%   ";
+    ShowCStr(screen_ptr, B(xstart + 36), B(ystart + nm + 4), "~TREMOLO/ViBRATO DEPTH~ " + temps + "/" + temps2, txt, hi_txt);
+    ShowCStr(screen_ptr, B(xstart + 36), B(ystart + nm + 5),
+             "~GLOBAL VOLUME~         " + ExpStrR(Num2str(p.global_volume, 16), 2, '0'), txt, hi_txt);
+
+    temps = " " + ExpStrL(Num2str(p.song_timer / 60, 10), 2, '0') + ":" + ExpStrL(Num2str(p.song_timer % 60, 10), 2, '0') + "." +
+            static_cast<char>('0' + p.song_timer_tenths / 10) + " ";
+    if (!stopped) temps = "~" + temps + "~";
+    ShowCStr(screen_ptr, B(xstart + 74), B(ystart + nm + 4), temps, txt, hi_txt);
+
+    temps = Bpm2str(calc_realtime_bpm_speed(p.tempo, p.speed, p.mark_line)) + " BPM";
+    const int shift = p.IRQ_freq_shift + p.playback_speed_shift;
+    if (shift > 0) temps += " [+" + Num2str(shift, 10) + "\xAE]";
+    else if (shift < 0) temps += " [-" + Num2str(std::abs(shift), 10) + "\xAE]";
+    ShowStr(screen_ptr, B(xstart + 62), B(ystart + nm + 5), ExpStrL(temps, 20, ' '), B(debug_info_bckg + debug_info_bpm));
+
+    const uint8_t current_track = count_channel(pattern_hpos);
+    for (int temp = 1; temp <= nm; ++temp) {
+        const uint8_t chan = B(temp);
+        const uint8_t bckg_attr = (!_ctrl_alt_flag && temp == current_track) ? debug_info_bckg2 : debug_info_bckg;
+        const bool on = p.channel_flag[chan];
+        const bool fresh = p.event_new[chan];
+        const uint8_t hid = B(bckg_attr + debug_info_txt_hid);
+        const uint8_t border = B(bckg_attr + debug_info_border);
+        const uint8_t atr1 = on ? B(bckg_attr + (fresh ? debug_info_hi_txt : debug_info_txt)) : hid;
+        const uint8_t atr2 = atr1;
+        const uint8_t atr3 = on ? B(bckg_attr + (fresh ? debug_info_hi_car : debug_info_car)) : hid;
+        const uint8_t atr4 = on ? B(bckg_attr + (fresh ? debug_info_hi_mod : debug_info_mod)) : hid;
+        const uint8_t blank = B(bckg_attr + (bckg_attr >> 4));
+
+        if (p.percussion_mode && temp >= 16 && temp <= 20) {
+            temps = std::string(1, _perc_char[temp - 16]);
+        } else {
+            uint8_t bit = 0;
+            switch (temp) {
+            case 1: case 2: bit = 1; break;
+            case 3: case 4: bit = 2; break;
+            case 5: case 6: bit = 4; break;
+            case 10: case 11: bit = 8; break;
+            case 12: case 13: bit = 0x10; break;
+            case 14: case 15: bit = 0x20; break;
+            default: break;
+            }
+            if (bit != 0 && (sd.flag_4op | bit) == sd.flag_4op) temps = in_4op_tracks_hi(chan) ? "\xAC" : "\xAD";
+            else temps = " ";
+        }
+        ShowStr(screen_ptr, B(xstart + 1), B(ystart + temp + 2), temps, B(bckg_attr + debug_info_perc));
+        ShowCStr(screen_ptr, B(xstart + 2), B(ystart + temp + 2), ExpStrL(Num2str(temp, 10), 2, ' '), atr1, hid);
+
+        const Chunk& ev = p.event_table[chan];
+        if (!_details_flag) {
+            if (ev.instr_def >= 1) {
+                temps = ExpStrR(cstr2str(Copy(at1(sd.instr_names, ev.instr_def).str(), 2, 30)), 30, ' ');
+                temps.erase(6, 1);
+                temps.insert(6, "~\xF7~");
+            } else {
+                temps = ExpStrR("      ~\xF7~", 30 + 2, ' ');
+            }
+        } else if (ev.instr_def >= 1) {
+            temps = "i" + byte2hex(ev.instr_def);
+        } else {
+            temps = ExpStrR("", 3, ' ');
+        }
+
+        const uint8_t temp2 = (stopped && !p.debugging) ? 3 : p.panning_table[chan];
+        const uint8_t lock = at1(sd.lock_flags, temp);
+        switch ((lock >> 2) & 3) {
+        case 0: temps2 = "\xFA\x18\x19"; break;
+        case 1: temps2 = "C\x18\x19"; break;
+        case 2: temps2 = "M\x18\x19"; break;
+        default: temps2 = "&\x18\x19"; break;
+        }
+        if (((lock >> 2) & 3) == 0 || (stopped && !p.debugging)) temps2 = "`" + temps2 + "`";
+        if (p.lockvol && (lock | 0x10) == lock) temps2 += "~\xB3~V+";
+        else temps2 += "~\xB3~`V+`";
+        if (p.lockVP && (lock | 0x20) == lock) temps2 += "~\xB3~P+";
+        else temps2 += "~\xB3~`P+`";
+
+        if (!(p.is_4op_chan(chan) && in_4op_tracks_hi(chan))) temps3 = ExpStrL(Num2str(p.freqtable2[chan], 16), 4, '0');
+        else temps3 = "    ";
+
+        const std::string panning = "~\xB3~" + std::string(_panning_str[temp2 & 3]) + "~\xB3~";
+        ShowC3Str(screen_ptr, B(xstart + 4), B(ystart + temp + 2), panning, p.pan_lock[chan] ? atr2 : atr3, border, hid);
+
+        const std::string fx = note_str(ev.note) + "~\xB3~" + effect_str(ev.effect_def, ev.effect, ev.effect_def2) + "~\xB3~" +
+                               effect_str(ev.effect_def2, ev.effect2, ev.effect_def) + "~\xB3~";
+        const bool perc_17_20 = p.percussion_mode && temp >= 17 && temp <= 20;
+        const A2Player::FmParameterTable& fm = p.fmpar_table[chan];
+
+        if (!_details_flag) {
+            ShowC3Str(screen_ptr, B(xstart + 8), B(ystart + temp + 2), temps2 + "~\xB3~", atr2, border, hid);
+            ShowCStr(screen_ptr, B(xstart + 18), B(ystart + temp + 2), temps + "~\xB3~" + fx + temps3 + "~\xB3~", atr1, border);
+        } else if (!_macro_details_flag) {
+            ShowCStr(screen_ptr, B(xstart + 8), B(ystart + temp + 2), temps + "~\xB3~" + fx + temps3 + "~\xB3~", atr1, border);
+
+            if (!perc_17_20) {
+                ShowStr(screen_ptr, B(xstart + 40), B(ystart + temp + 2),
+                        std::string(_connection[fm.connect & 1]) + " " + Num2str(fm.feedb, 16) + " ", atr1);
+            } else {
+                ShowStr(screen_ptr, B(xstart + 40), B(ystart + temp + 2), ExpStrL("", 5, ' '), atr1);
+            }
+
+            const std::string car = Num2str(fm.adsrw_car.attck, 16) + Num2str(fm.adsrw_car.dec, 16) +
+                                    Num2str(fm.adsrw_car.sustn, 16) + Num2str(fm.adsrw_car.rel, 16) + " " +
+                                    Num2str(fm.adsrw_car.wform, 16) + " " + Num2str(fm.kslC, 16) + " " +
+                                    Num2str(fm.multipC, 16) + " " + _off_on[0][fm.tremC & 1] + _off_on[1][fm.vibrC & 1] +
+                                    _off_on[2][fm.ksrC & 1] + _off_on[3][fm.sustC & 1] + "~\xB3~";
+            ShowCStr(screen_ptr, B(xstart + 45), B(ystart + temp + 2), car, perc_17_20 ? blank : atr3, border);
+
+            const std::string mod = Num2str(fm.adsrw_mod.attck, 16) + Num2str(fm.adsrw_mod.dec, 16) +
+                                    Num2str(fm.adsrw_mod.sustn, 16) + Num2str(fm.adsrw_mod.rel, 16) + " " +
+                                    Num2str(fm.adsrw_mod.wform, 16) + " " + Num2str(fm.kslM, 16) + " " +
+                                    Num2str(fm.multipM, 16) + " " + _off_on[0][fm.tremM & 1] + _off_on[1][fm.vibrM & 1] +
+                                    _off_on[2][fm.ksrM & 1] + _off_on[3][fm.sustM & 1] + "~\xB3~";
+            ShowCStr(screen_ptr, B(xstart + 61), B(ystart + temp + 2), mod, atr4, border);
+        } else {
+            ShowCStr(screen_ptr, B(xstart + 8), B(ystart + temp + 2), temps + "~\xB3~" + fx, atr1, border);
+
+            const A2Player::MacroState& mt = p.macro_table[chan];
+            const uintptr_t rt = instr_macros_addr(mt.fmreg_table);
+            const uintptr_t rd = instr_macros_data_addr(mt.fmreg_table, mt.fmreg_pos);
+            const uint8_t fm_length = songdata_read<uint8_t>(rt + offsetof(RegisterTable, length));
+            const std::string fmreg = _macro_pos_str_fm(
+                mt.fmreg_pos, fm_length, songdata_read<uint8_t>(rt + offsetof(RegisterTable, keyoff_pos)),
+                songdata_read<uint8_t>(rd + offsetof(RegisterTableDef, duration)),
+                B(songdata_read<uint8_t>(rd + offsetof(RegisterTableDef, fm_data) + offsetof(FmInstData, FEEDBACK_FM)) >> 5),
+                songdata_read<int16_t>(rd + offsetof(RegisterTableDef, freq_slide)));
+
+            const uintptr_t at = macro_table_addr(mt.arpg_table) + offsetof(MacroTable, arpeggio);
+            const std::string arpg = byte2hex(mt.arpg_table) + "\xF6" +
+                                     _macro_pos_str_av(mt.arpg_pos, songdata_read<uint8_t>(at + offsetof(ArpeggioTable, length)),
+                                                       songdata_read<uint8_t>(at + offsetof(ArpeggioTable, keyoff_pos)), "");
+
+            const uintptr_t vt = macro_table_addr(mt.vib_table) + offsetof(MacroTable, vibrato);
+            const int8_t vib_value = songdata_read<int8_t>(vt + offsetof(VibratoTable, data) + static_cast<intptr_t>(mt.vib_pos - 1));
+            const std::string vibr = byte2hex(mt.vib_table) + "\xF6" +
+                                     _macro_pos_str_av(mt.vib_pos, songdata_read<uint8_t>(vt + offsetof(VibratoTable, length)),
+                                                       songdata_read<uint8_t>(vt + offsetof(VibratoTable, keyoff_pos)),
+                                                       _freq_slide_str(vib_value));
+
+            ShowC3Str(screen_ptr, B(xstart + 35), B(ystart + temp + 2),
+                      _macro_str(fmreg, fm_length) + "~\xB3~" + _macro_str(arpg, mt.arpg_table) + "~\xB3~" +
+                          _macro_str(vibr, mt.vib_table) + "~\xB3~" + temps3 + "~\xB3~",
+                      atr1, border, hid);
+        }
+
+        ShowCStr(screen_ptr, B(xstart + 77), B(ystart + temp + 2),
+                 ExpStrL(Num2str(p.carrier_vol[chan], 16), 2, '0') + "~\xB3~", perc_17_20 ? blank : atr3, border);
+        ShowCStr(screen_ptr, B(xstart + 80), B(ystart + temp + 2), ExpStrL(Num2str(p.modulator_vol[chan], 16), 2, '0') + " ",
+                 atr4, border);
+    }
+}
+
+// Ctrl+D、または Ctrl+Alt を押している間 (その場合は Ctrl+Alt を離すと閉じる)
+// F1 (ヘルプ) はヘルプの実装とともに対応する。
+void DEBUG_INFO()
+{
+    const bool _ctrl_alt_flag = ctrl_pressed() && alt_pressed();
+    const uint8_t _win_attr[2] = { B(debug_info_bckg + debug_info_border2), B(debug_info_bckg + debug_info_border) };
+    bool _reset_state = false;
+    bool _details_flag = false, _macro_details_flag = false;
+    bool old_debugging = false, old_replay_forbidden = false;
+    PlayStatus old_play_status = PlayStatus::Stopped;
+
+    if (!_ctrl_alt_flag) {
+        _details_flag = debug_info_details_flag >= 1;
+        _macro_details_flag = debug_info_details_flag >= 2;
+    }
+
+    for (;;) {   // _jmp1
+        uint8_t nm;
+        {
+            PlayerLock lock;
+            nm = songdata().nm_tracks;
+        }
+        uint8_t xstart, ystart;
+        ScreenMemCopy(screen_ptr, screen_backup);
+        centered_frame_vdest = screen_ptr;
+        HideCursor();
+        centered_frame(xstart, ystart, 83, B(nm + 6), _win_title[_ctrl_alt_flag ? 1 : 0], _win_attr[_ctrl_alt_flag ? 1 : 0],
+                       B(debug_info_bckg + debug_info_title), frame_double);
+
+        uint16_t fkey;
+        do {
+            if (_ctrl_alt_flag) {
+                _details_flag = shift_pressed();
+                _macro_details_flag = !left_shift_pressed() && right_shift_pressed();
+            }
+
+            {
+                PlayerLock lock;
+                A2Player& p = P();
+                if (p.space_pressed && p.play_status != PlayStatus::Stopped) {
+                    if (!_ctrl_alt_flag && ctrl_pressed() && !alt_pressed() && !shift_pressed()) {
+                        p.debugging = false;
+                        _reset_state = false;
+                    } else if (!_reset_state) {
+                        _reset_state = true;
+                        old_debugging = p.debugging;
+                        old_play_status = p.play_status;
+                        old_replay_forbidden = p.replay_forbidden;
+                        p.debugging = true;
+                        p.play_status = PlayStatus::Playing;
+                        p.replay_forbidden = false;
+                        STATUS_LINE_refresh();
+                    }
+                }
+                debug_info_refresh(xstart, ystart, _ctrl_alt_flag, _details_flag, _macro_details_flag);
+            }
+
+            fkey = WORD_NULL;
+            if (_ctrl_alt_flag) {
+                if (keypressed()) keyboard_reset_buffer();
+            } else if (keypressed()) {
+                fkey = getkey();
+            }
+
+            if (scankey(SC_SPACE)) {
+                bool stopped;
+                uint8_t pos;
+                {
+                    PlayerLock lock;
+                    stopped = P().play_status == PlayStatus::Stopped;
+                    pos = P().calc_pattern_pos(pattern_patt);
+                }
+                if (stopped) {
+                    fade_out_playback(false);
+                    PlayerLock lock;
+                    A2Player& p = P();
+                    if (pos != BYTE_NULL) {
+                        p.calibrate_player(pos, pattern_page, true);
+                        if (p.play_status != PlayStatus::Stopped) {
+                            p.debugging = true;
+                            p.play_status = PlayStatus::Playing;
+                            p.replay_forbidden = false;
+                            PATTERN_ORDER_page_refresh(pattord_page);
+                            PATTERN_page_refresh(pattern_page);
+                            tracing = true;
+                        }
+                    } else {
+                        p.play_single_patt = true;
+                        p.no_sync_playing = true;
+                        p.start_pattern = pattern_patt;
+                        p.start_line = pattern_page;
+                        start_playing();
+                        p.debugging = true;
+                        tracing = true;
+                    }
+                } else if (!tracing) {
+                    PlayerLock lock;
+                    P().debugging = true;
+                    tracing = true;
+                }
+            }
+
+            switch (fkey) {
+            case kCtLEFT:
+            case kCtRGHT: {
+                PlayerLock lock;
+                A2Player& p = P();
+                if (!p.debugging && p.play_status == PlayStatus::Playing) {
+                    if (fkey == kCtLEFT) p.rewind = true;
+                    else p.fast_forward = true;
+                }
+                break;
+            }
+
+            case kTAB:
+                if (!_details_flag) {
+                    _details_flag = true;
+                } else if (!_macro_details_flag) {
+                    _macro_details_flag = true;
+                } else {
+                    _details_flag = false;
+                    _macro_details_flag = false;
+                }
+                break;
+
+            case kBkSPC: {
+                PlayerLock lock;
+                A2Player& p = P();
+                if (!p.replay_forbidden) p.repeat_pattern = !p.repeat_pattern;
+                break;
+            }
+
+            case kPgUP:
+            case kHOME:
+            case kPgDOWN:
+            case kEND: {
+                PlayerLock lock;
+                if (fkey == kPgUP || fkey == kHOME) {
+                    chan_pos = 1;
+                    pattern_hpos = 1;
+                } else {
+                    chan_pos = last_chan_pos();
+                    pattern_hpos = last_hpos();
+                }
+                PATTERN_ORDER_page_refresh(pattord_page);
+                PATTERN_page_refresh(pattern_page);
+                break;
+            }
+
+            case kUP:
+            case kDOWN: {
+                PlayerLock lock;
+                const uint8_t n = B(_pattedit_lastpos / MAX_TRACKS);
+                bool moved = false;
+                if (fkey == kUP) {
+                    if (chan_pos > 1) {
+                        --chan_pos;
+                        moved = true;
+                    } else if (pattern_hpos > n) {
+                        pattern_hpos = B(pattern_hpos - n);
+                        moved = true;
+                    }
+                } else {
+                    if (chan_pos < last_chan_pos()) {
+                        ++chan_pos;
+                        moved = true;
+                    } else if (pattern_hpos <= last_hpos() - n) {
+                        pattern_hpos = B(pattern_hpos + n);
+                        moved = true;
+                    }
+                }
+                if (moved) {
+                    PATTERN_ORDER_page_refresh(pattord_page);
+                    PATTERN_page_refresh(pattern_page);
+                }
+                break;
+            }
+
+            case kCHmins:
+            case kNPmins:
+            case kCtHOME:
+            case kCHplus:
+            case kNPplus:
+            case kCtEND: {
+                const bool backward = fkey == kCHmins || fkey == kNPmins || fkey == kCtHOME;
+                const bool keep_line = fkey == kCtHOME || fkey == kCtEND;
+                int target = -1;
+                uint8_t temp2 = 0;
+                {
+                    PlayerLock lock;
+                    A2Player& p = P();
+                    if (!p.play_single_patt) {
+                        uint8_t temp = p.current_order;
+                        temp2 = p.current_line;
+                        if (backward) {
+                            while (temp > 0 && !(p.order_at(B(temp - 1)) < 0x80)) --temp;
+                            if (temp > 0) {
+                                --temp;
+                                if (p.order_at(temp) < 0x80) target = temp;
+                            }
+                        } else {
+                            while (temp < 0x7f && p.order_at(B(temp + 1)) > 0x80) ++temp;
+                            if (temp < 0x7f) {
+                                ++temp;
+                                if (p.order_at(temp) < 0x80) target = temp;
+                            }
+                        }
+                    }
+                }
+                if (target >= 0) {
+                    fade_out_playback(false);
+                    PlayerLock lock;
+                    calibrate_player(B(target), keep_line ? temp2 : 0, false);
+                }
+                break;
+            }
+
+            case kCtENTR:
+                jump_to_next_order();
+                break;
+
+            case kAlt0: {
+                PlayerLock lock;
+                const uint8_t nm_tracks = songdata().nm_tracks;
+                if ((shift_pressed() && nm_tracks > 9) || nm_tracks == 10) {
+                    toggle_channel(10);
+                    fkey = WORD_NULL;
+                }
+                break;
+            }
+
+            case kAstrsk:
+            case kNPastr:
+            case kAltS:
+            case kAltR: {
+                PlayerLock lock;
+                process_channel_keys(fkey);
+                break;
+            }
+
+            default:
+                if (fkey >= kAlt1 && fkey <= kAlt9 && (fkey & 0xff) == 0) {
+                    PlayerLock lock;
+                    process_channel_keys(fkey);
+                }
+                break;
+            }
+
+            draw_screen();
+        } while (!((!_ctrl_alt_flag && (fkey == kESC || fkey == kAlt0)) || (_ctrl_alt_flag && !(ctrl_pressed() && alt_pressed())) ||
+                   _force_program_quit));
+
+        if (!_ctrl_alt_flag) keyboard_reset_buffer();
+        if (fkey != kAlt0 && _reset_state) {
+            PlayerLock lock;
+            A2Player& p = P();
+            p.debugging = old_debugging;
+            p.play_status = old_play_status;
+            p.replay_forbidden = old_replay_forbidden;
+        }
+        if (!_ctrl_alt_flag) debug_info_details_flag = B(int(_details_flag) + int(_macro_details_flag));
+
+        move_to_screen_data = screen_backup;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + 83 + 2);
+        move_to_screen_area[4] = B(ystart + nm + 6 + 1);
+        move2screen();
+
+        if (fkey == kAlt0) {
+            {
+                PlayerLock lock;
+                P().no_step_debugging = true;
+            }
+            track_onoff_dialog();
+            draw_screen();
+            keyboard_reset_buffer();
+            {
+                PlayerLock lock;
+                P().no_step_debugging = false;
+            }
+            if (!_force_program_quit) continue;
         }
         break;
     }
@@ -2081,6 +2984,12 @@ uint16_t PATTERN_trace()
             PlayerLock lock;
             trace_update_proc();
         }
+        if (ctrl_pressed() && alt_pressed()) {
+            DEBUG_INFO();
+            PlayerLock lock;
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+        }
 
         uint16_t key = process_events();
         if (key == WORD_NULL) {
@@ -2091,6 +3000,12 @@ uint16_t PATTERN_trace()
             fkey2 = key;
             if (fkey2 == kF3 || fkey2 == kShF3 || fkey2 == kCtrlL) {
                 FILE_open();
+            } else if (fkey2 == kCtrlD) {
+                pause_debugging();
+                DEBUG_INFO();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtENTR) {
+                jump_to_next_order();
             } else if (fkey2 == kF10) {
                 if (QUIT_request()) nope = true;
                 else fkey2 = WORD_NULL;   // やめた場合は終了扱いにしない
@@ -2135,7 +3050,7 @@ uint16_t PATTERN_trace()
                 if (target >= 0) {
                     fade_out_playback(false);
                     PlayerLock lock;
-                    calibrate_player(B(target), keep_line ? temp2 : 0, true);
+                    calibrate_player(B(target), keep_line ? temp2 : 0, false);
                 }
             } else {
                 PlayerLock lock;
@@ -2176,14 +3091,6 @@ uint16_t PATTERN_trace()
                             PATTERN_ORDER_page_refresh(pattord_page);
                             PATTERN_page_refresh(pattern_page);
                         }
-                    }
-                    break;
-
-                case kCtENTR:
-                    if (p.play_single_patt) {
-                        p.current_line = 0;
-                        PATTERN_ORDER_page_refresh(0);
-                        PATTERN_page_refresh(0);
                     }
                     break;
 
@@ -2271,6 +3178,10 @@ uint16_t PATTERN_trace()
             }
         }
 
+        if (pending_track_dialog) {
+            pending_track_dialog = false;
+            track_onoff_dialog();
+        }
         draw_screen();
 
         bool stopped;
@@ -2383,7 +3294,7 @@ bool process_play_keys(uint16_t fkey, uint8_t pattern)
                 stop_playing();
                 p.debugging = false;
                 if (nosync) p.no_sync_playing = true;
-                calibrate_player(p.calc_pattern_pos(pattern), 0, true);
+                calibrate_player(p.calc_pattern_pos(pattern), 0, false);
                 p.repeat_pattern = repeat;
             }
             return false;
@@ -2391,7 +3302,7 @@ bool process_play_keys(uint16_t fkey, uint8_t pattern)
             if (p.calc_pattern_pos(pattern) != BYTE_NULL) {
                 p.debugging = false;
                 if (nosync) p.no_sync_playing = true;
-                calibrate_player(p.calc_pattern_pos(pattern), 0, true);
+                calibrate_player(p.calc_pattern_pos(pattern), 0, false);
                 p.repeat_pattern = repeat;
                 return want_trace();
             }
@@ -2436,6 +3347,25 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         if (use_large_cursor) WideCursor();
         else ThinCursor();
 
+        // デバッグ情報で Space を押して再生を始めた場合はトレースに入る
+        const auto trace_after_debug_info = [&]() -> bool {
+            if (!tracing) return false;
+            tracing = false;
+            const uint16_t temp1 = PATTERN_trace();
+            return temp1 == kF10 || _force_program_quit;
+        };
+
+        if (ctrl_pressed() && alt_pressed()) {
+            DEBUG_INFO();
+            {
+                PlayerLock lock;
+                PATTERN_ORDER_page_refresh(pattord_page);
+                PATTERN_page_refresh(pattern_page);
+            }
+            if (trace_after_debug_info()) return kF10;
+            continue;
+        }
+
         uint16_t fkey = process_events();
         if (fkey == WORD_NULL) {
             if (!keypressed()) {
@@ -2451,6 +3381,15 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         case kF10:
         case kESC:
             if (QUIT_request()) return kESC;
+            break;
+
+        case kCtrlD:
+            if (!marking) DEBUG_INFO();
+            if (trace_after_debug_info()) return kF10;
+            break;
+
+        case kCtENTR:
+            jump_to_next_order();
             break;
 
         case kF2: case kShF2: case kCtrlS:
@@ -2605,18 +3544,17 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 }
                 break;
 
-            case kCtENTR: {
-                A2Player& p = P();
-                if (p.play_single_patt) p.current_line = 0;
-                break;
-            }
-
             default:
                 process_channel_keys(fkey);
                 break;
             }
             break;
         }
+        }
+
+        if (pending_track_dialog) {
+            pending_track_dialog = false;
+            track_onoff_dialog();
         }
 
         if (trace) {
