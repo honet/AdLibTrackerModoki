@@ -4,8 +4,8 @@
 
 ## 現在の状況
 
-- フェーズ6e-1 (楽器窓) が完了。
-- 次の作業は 6e-2 (楽器エディタ)。
+- フェーズ6e-2 (楽器エディタ) が完了。
+- 次の作業は 6e-3 (マクロエディタ)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -122,6 +122,18 @@
 - 本家で保存した `data/test6e1.a2i` / `test6e1.a2f` とバイト単位で一致。`test6e1.a2m` は ins_4op_flags の未使用部分
   (本家は初期化していない作業用の値を書き込む) を除いて一致することを確認
 
+### フェーズ6e-2: 楽器エディタ (楽器窓の TAB)
+- INSTRUMENT_CONTROL_edit を移植 (ui/InstEdit.inl): 2OP / 4OP / パーカッション (SD/TT/TC/HH) の 3 種類の画面
+  - ADSR・波形・KSL・出力レベル・パン・接続 (4OP の 4 種類を含む)・フィードバック・微調整・AM/VIB/EG/KSR・倍率の編集
+  - ADSR のプレビュー (Ctrl+Space で切り替え。標準以外の画面モードでは下に常に表示)、接続図
+  - Enter / TAB / Shift+TAB によるキャリア・モジュレータ (4OP は 4 つのスロット) の移動、Shift+Enter (もう一方の内容を写す)
+  - Alt+A/D/S/R/O/W/K/P/C/F/T/E/M による項目の移動、Alt+0〜4 (試聴するオペレータ)、Ctrl+[ / Ctrl+] (前後の楽器)、
+    Ctrl+Shift+[ / ] (マクロの速度)、Shift+M/B/S/T/C/H/O、F2 / Shift+F2 / F3、F7
+  - 楽器ごとのカーソル位置の記憶 (remember_ins_pos、bank_position_list)
+- 本家との比較は画面モード 2 (本家の adtrack2.ini の sdl_screen_mode=2) で行う。zap.rad (2OP・パーカッション) と
+  square.a2m (flag_4op あり) で編集した `data/test6e2.a2m` / `test6e2b.a2m` が ins_4op_flags の未使用部分を除いて一致
+- 楽器エディタの F1 (ヘルプ)・Ctrl+O (オクターブ設定)・Ctrl+Q / Ctrl+E (マクロエディタ) は、まだエディタを開き直すだけ
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -133,8 +145,7 @@
 ## 今後の計画
 
 ### フェーズ6e: 楽器とマクロ
-- 6e-2 (次の作業): 楽器エディタ (Ctrl+E、楽器窓の TAB)
-- 6e-3: マクロエディタ (Ctrl+Q / Ctrl+G、楽器窓の Shift+TAB)
+- 6e-3 (次の作業): マクロエディタ (Ctrl+Q / Ctrl+G / Ctrl+E、楽器窓の Shift+TAB、楽器エディタの Ctrl+Q / Ctrl+E)
 - 6e-4: A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)
 - 6e-5: BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
 
