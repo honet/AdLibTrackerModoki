@@ -113,9 +113,9 @@ bool LoadSongModule(const std::wstring& path, Song& song, const Song::Defaults& 
     return true;
 }
 
-bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, std::wstring& error)
+bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, bool to_marked, std::wstring& error)
 {
-    if (!LoadA2p(path, song, pattern, error)) return false;
+    if (!LoadA2p(path, song, pattern, to_marked, error)) return false;
     filter_names(song.data());
     return true;
 }

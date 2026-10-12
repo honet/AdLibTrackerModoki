@@ -20,6 +20,7 @@
 #include "../Resource.h"
 #include "../app/Sound.h"
 #include "../core/player/A2Player.h"
+#include "../core/song/Depack.h"
 #include "../core/song/EffectDefs.h"
 #include "../core/song/ModuleLoader.h"
 #include "../core/song/ModuleSaver.h"
@@ -107,6 +108,10 @@ bool force_scrollbars = false;
 bool no_trace_pattord = false;
 bool module_archived = false;
 bool _realtime_gfx_no_update = false;
+
+// パターン一覧 (adt2extn.pas)
+uint8_t pattern_list__page = 1;
+uint8_t pattern2use = BYTE_NULL;   // 一覧から A2P を保存・読み込むときのパターン (BYTE_NULL なら pattern_patt)
 
 std::wstring songdata_source;   // 読み込んだ (保存した) 曲のパス
 
@@ -1602,13 +1607,29 @@ void refresh_windows()
     PATTERN_page_refresh(pattern_page);
 }
 
+// パターン一覧でマークしたパターンの数 (adt2extn.pas の _patts_marked)
+uint8_t _patts_marked()
+{
+    const FixedSongData& sd = songdata();
+    uint8_t result = 0;
+    for (int temp = 0; temp <= 0x7f; ++temp) {
+        if (sd.pattern_names[temp].data[0] == '\x10') ++result;
+    }
+    return result;
+}
+
 void load_song(const std::wstring& path)
 {
     fade_out_playback(false);
 
     const bool is_pattern = GetModuleKind(path) == ModuleKind::Pattern;
     std::wstring error;
-    if (!sound_open_song(path, pattern_patt, error)) {
+    bool to_marked;
+    {
+        PlayerLock lock;
+        to_marked = pattern2use != BYTE_NULL && _patts_marked() != 0;
+    }
+    if (!sound_open_song(path, pattern2use != BYTE_NULL ? pattern2use : pattern_patt, to_marked, error)) {
         MessageBoxW(g_hwnd, error.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
         keyboard_init();
         refresh_windows();
@@ -1626,6 +1647,7 @@ void load_song(const std::wstring& path)
         _name_scrl_pending_frames = 0;
         POSITIONS_reset();
     }
+    pattern_list__page = 1;
     force_scrollbars = true;
     PATTERN_ORDER_page_refresh(pattord_page);
     PATTERN_page_refresh(pattern_page);
@@ -1635,13 +1657,14 @@ void load_song(const std::wstring& path)
 }
 
 // F3: ファイルを開く (本クローン版では Windows のコモンダイアログを使う)
-void FILE_open()
+// filter を省略すると対応形式すべて (パターン一覧からは A2P だけを指定する)
+void FILE_open(const wchar_t* filter = nullptr)
 {
     WCHAR buf[MAX_PATH] = L"";
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = g_hwnd;
-    ofn.lpstrFilter = ModuleFileFilter();
+    ofn.lpstrFilter = filter != nullptr ? filter : ModuleFileFilter();
     ofn.lpstrFile = buf;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -1819,6 +1842,7 @@ void NUKE(uint8_t spos)
         std::fill(std::begin(p.channel_flag), std::end(p.channel_flag), true);
         track_notes = false;
         current_inst = 1;
+        pattern_list__page = 1;
         module_archived = true;
         return;
     }
@@ -1838,6 +1862,7 @@ void NUKE(uint8_t spos)
         for (int temp2 = 0; temp2 <= 0x7f; ++temp2) {
             sd.pattern_names[temp2].assign(" PAT_" + byte2hex(B(temp2)) + "  \xF7 ");
         }
+        pattern_list__page = 1;
         break;
 
     case 4:
@@ -1955,7 +1980,7 @@ void save_song(const std::wstring& path, const wchar_t* ext)
         copy->patterns() = P().song()->patterns();
         copy->title = P().song()->title;
         state = song_save_state();
-        pattern = pattern_patt;
+        pattern = pattern2use != BYTE_NULL ? pattern2use : pattern_patt;
     }
 
     uint8_t xstart = 0, ystart = 0;
@@ -3255,6 +3280,8 @@ void trace_record_notes(uint16_t fkey2)
     keyboard_reset_buffer();
 }
 
+void PATTERN_LIST(uint8_t page);
+
 uint16_t PATTERN_trace()
 {
     {
@@ -3269,7 +3296,7 @@ uint16_t PATTERN_trace()
     const uint8_t old_pattord_page = pattord_page;
     const uint8_t old_pattord_hpos = pattord_hpos;
     const uint8_t old_pattord_vpos = pattord_vpos;
-    const uint8_t old_pattern_patt = pattern_patt;
+    uint8_t old_pattern_patt = pattern_patt;   // Ctrl+P の一覧で選んだパターンに変わる
     const uint8_t old_pattern_page = pattern_page;
     const uint8_t old_pattern_hpos = pattern_hpos;
     bool reset_pos = true;
@@ -3313,6 +3340,20 @@ uint16_t PATTERN_trace()
             } else if (fkey2 == kCtrlD) {
                 pause_debugging();
                 DEBUG_INFO();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlP) {
+                pause_debugging();
+                bool in_trace;
+                {
+                    PlayerLock lock;
+                    in_trace = play_status() != isStopped && tracing;
+                }
+                if (!in_trace) {
+                    PATTERN_LIST(B(pattern_patt + 1));
+                } else {
+                    PATTERN_LIST(B(old_pattern_patt + 1));
+                    old_pattern_patt = B(pattern_list__page - 1);
+                }
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtENTR) {
                 jump_to_next_order();
@@ -4042,9 +4083,11 @@ uint8_t FX(char chr)
 // 位置を指して確認するときの画面 (ipattern.inc の PATTERN_position_preview)
 // mode 0: 位置を保存、1: 指定位置を表示、BYTE_NULL: 保存した位置に戻す
 // (old_chan_pos はブロックの選択 (Alt+B など) と共用のグローバル変数。オリジナルどおり)
+// (old_pattern_patt は adt2ext2.pas のグローバル変数で、パターン一覧 (Ctrl+P) も使う)
+uint8_t old_pattern_patt, old_pattern_page, old_pattern_hpos;
+
 void PATTERN_position_preview(uint8_t pattern, uint8_t line, uint8_t channel, uint8_t mode)
 {
-    static uint8_t old_pattern_patt, old_pattern_page, old_pattern_hpos;
     static uint8_t old_block_xstart, old_block_ystart;
     static bool old_marking;
 
@@ -4645,6 +4688,428 @@ void paste_object(uint8_t pattern, uint8_t& page, uint8_t hpos)
     default:
         break;
     }
+}
+
+// PATTERN_edit 内の paste_object_alt (Shift+Alt+P: パターン一覧で選んだパターンの、カーソルと同じ位置へ貼り付ける)
+void paste_object_alt(uint8_t pattern, uint8_t page, uint8_t hpos)
+{
+    const uint8_t chan = count_channel(hpos);
+    const FixedSongData& sd = songdata();
+    Chunk chunk{};
+    const Chunk& src = clipboard.pattern[1][0];
+
+    switch (clipboard.object_type) {
+    case objNote:
+        get_chunk(pattern, page, chan, chunk);
+        chunk.note = src.note;
+        put_chunk(pattern, page, chan, chunk);
+        break;
+
+    case objInstrumentDef:
+        get_chunk(pattern, page, chan, chunk);
+        chunk.instr_def = src.instr_def;
+        put_chunk(pattern, page, chan, chunk);
+        break;
+
+    case objEffect:
+        get_chunk(pattern, page, chan, chunk);
+        chunk.effect_def = src.effect_def;
+        chunk.effect = src.effect;
+        put_chunk(pattern, page, chan, chunk);
+        break;
+
+    case objEffect2:
+        get_chunk(pattern, page, chan, chunk);
+        chunk.effect_def2 = src.effect_def2;
+        chunk.effect2 = src.effect2;
+        put_chunk(pattern, page, chan, chunk);
+        break;
+
+    case objLine:
+        for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1) put_chunk(pattern, page, B(temp1), clipboard.pattern[temp1][0]);
+        break;
+
+    case objTrack:
+        for (int temp1 = 0; temp1 <= sd.patt_len - 1; ++temp1) put_chunk(pattern, B(temp1), chan, clipboard.pattern[1][temp1]);
+        break;
+
+    case objPattern:
+        for (int temp2 = 0; temp2 <= sd.patt_len - 1; ++temp2) {
+            for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1)
+                put_chunk(pattern, B(temp2), B(temp1), clipboard.pattern[temp1][temp2]);
+        }
+        break;
+
+    case objMarkedBlock:
+        for (int temp2 = page; temp2 <= page + clipboard.block_vsize; ++temp2) {
+            for (int temp1 = chan; temp1 <= chan + clipboard.block_hsize; ++temp1) {
+                if (temp1 <= sd.nm_tracks && temp2 <= sd.patt_len - 1)
+                    put_chunk(pattern, B(temp2), B(temp1), clipboard.pattern[temp1 - chan + 1][temp2 - page]);
+            }
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// パターン一覧 (ipattord.inc の pattern_list__proc / PATTERN_LIST / PATTERN_LIST_alt)
+// ---------------------------------------------------------------------------
+//
+// パターン名の 1 文字目はマーク (#16)、9 文字目は使用中 (#15) か空 (#14) の印、12 文字目からが名前。
+// オリジナルは Menu に songdata.pattern_names をそのまま渡すが、本クローン版の Menu は文字列の配列を受け取るため、
+// pattern_list_items を介して受け渡す (pattern_list__proc の始めと終わりで同期する)。
+
+uint8_t _nm_patterns = 0;
+uint32_t songdata_crc = 0;
+std::vector<std::string> pattern_list_items(128);
+
+// パターン名の pos 文字目 (1 始まり)
+char& pattern_name_chr(uint8_t pattern, int pos)
+{
+    return songdata().pattern_names[pattern].data[pos - 1];
+}
+
+bool pattern_is_empty(uint8_t pattern)
+{
+    const auto* p = reinterpret_cast<const uint8_t*>(pattern_data_ptr(pattern));
+    return std::all_of(p, p + PATTERN_SIZE, [](uint8_t b) { return b == 0; });
+}
+
+void pattern_names_to_list()
+{
+    const FixedSongData& sd = songdata();
+    for (int temp = 0; temp <= 0x7f; ++temp) pattern_list_items[temp] = sd.pattern_names[temp].str();
+}
+
+void list_to_pattern_names()
+{
+    FixedSongData& sd = songdata();
+    for (int temp = 0; temp <= 0x7f; ++temp) {
+        if (pattern_list_items[temp] != sd.pattern_names[temp].str()) sd.pattern_names[temp].assign(pattern_list_items[temp]);
+    }
+}
+
+// 印を除いたパターン名とパターンデータの CRC。
+// マーク (1 文字目) は戻すが、9 文字目はオリジナルどおり #14 のままになる。
+uint32_t pattern_list_crc()
+{
+    FixedSongData& sd = songdata();
+    char temp_marks[128];
+    for (int temp = 0; temp <= 0x7f; ++temp) {
+        temp_marks[temp] = pattern_name_chr(B(temp), 1);
+        pattern_name_chr(B(temp), 1) = ' ';
+        pattern_name_chr(B(temp), 9) = '\x0e';
+    }
+    uint32_t crc = Update32(sd.pattern_names, sizeof(sd.pattern_names), 0);
+    crc = Update32(&P().song()->patterns(), sizeof(PatternData), crc);
+    for (int temp = 0; temp <= 0x7f; ++temp) pattern_name_chr(B(temp), 1) = temp_marks[temp];
+    return crc;
+}
+
+// 使用中のパターンの数を数え、9 文字目の印を付け直す
+void count_used_patterns()
+{
+    _nm_patterns = 0;
+    for (int temp = 0; temp <= 0x7f; ++temp) {
+        if (!pattern_is_empty(B(temp))) {
+            pattern_name_chr(B(temp), 9) = '\x0f';
+            ++_nm_patterns;
+        } else {
+            pattern_name_chr(B(temp), 9) = '\x0e';
+        }
+    }
+}
+
+// パターン一覧の Menu の ext_proc
+void pattern_list__proc()
+{
+    PlayerLock lock;
+    FixedSongData& sd = songdata();
+    list_to_pattern_names();
+
+    const uint8_t cur = B(mn_environment.curr_pos - 1);
+    Chunk chunk{};
+    const auto clear_pattern = [&](uint8_t patt) {
+        for (int temp2 = 0; temp2 <= sd.patt_len - 1; ++temp2) {
+            for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1) put_chunk(patt, B(temp2), B(temp1), Chunk{});
+        }
+    };
+    const auto copy_pattern = [](uint8_t dst, uint8_t src) {
+        std::memmove(pattern_data_ptr(dst), pattern_data_ptr(src), PATTERN_SIZE);
+    };
+
+    switch (mn_environment.keystroke) {
+    case kSPACE:
+        if (ctrl_pressed()) {
+            for (int temp = 0; temp <= 0x7f; ++temp) {
+                char& mark = pattern_name_chr(B(temp), 1);
+                if (!shift_pressed()) mark = ' ';
+                else mark = mark != ' ' ? ' ' : '\x10';
+            }
+        } else {
+            char& mark = pattern_name_chr(cur, 1);
+            mark = mark != '\x10' ? '\x10' : ' ';
+        }
+        break;
+
+    case kAltC:
+    case kCtrlC:
+        clipboard.object_type = objPattern;
+        for (int temp2 = 0; temp2 <= sd.patt_len - 1; ++temp2) {
+            for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1) {
+                get_chunk(cur, B(temp2), B(temp1), chunk);
+                clipboard.pattern[temp1][temp2] = chunk;
+            }
+        }
+        clipboard._string = Copy(sd.pattern_names[cur].str(), 9, 33);
+        break;
+
+    case kAltP:
+    case kAltV:
+    case kCtrlV:
+        if (clipboard.object_type == objPattern) {
+            // Alt+V は名前だけ、Shift+Ctrl+V は内容だけを貼り付ける
+            if (mn_environment.keystroke != kAltV) {
+                for (int temp2 = 0; temp2 <= sd.patt_len - 1; ++temp2) {
+                    for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1)
+                        put_chunk(cur, B(temp2), B(temp1), clipboard.pattern[temp1][temp2]);
+                }
+            }
+            if (!(shift_pressed() && mn_environment.keystroke == kCtrlV)) {
+                auto& name = sd.pattern_names[cur];
+                name.assign(Copy(name.str(), 1, 8) + clipboard._string);
+            }
+
+            // オリジナルどおり、もともと使用中のパターンでも数を増やす
+            if (!pattern_is_empty(cur)) {
+                pattern_name_chr(cur, 9) = '\x0f';
+                ++_nm_patterns;
+            } else {
+                pattern_name_chr(cur, 9) = '\x0e';
+            }
+
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+        }
+        break;
+
+    case kCtrlN:
+        if (!shift_pressed()) {
+            pattern_name_chr(cur, 9) = '\x0e';
+            clear_pattern(cur);
+        } else {
+            for (int temp = 0; temp <= 0x7f; ++temp) {
+                if (pattern_name_chr(B(temp), 1) == '\x10') {
+                    pattern_name_chr(B(temp), 9) = '\x0e';
+                    clear_pattern(B(temp));
+                }
+            }
+        }
+        break;
+
+    case kCtrlW:
+        // マークした 2 つのパターンを入れ替える (Shift を押していれば名前も)
+        if (_patts_marked() == 2) {
+            uint8_t _1st = 0;
+            while (_1st < 127 && pattern_name_chr(_1st, 1) == ' ') ++_1st;
+            uint8_t _2nd = B(_1st + 1);
+            while (_2nd < 127 && pattern_name_chr(_2nd, 1) == ' ') ++_2nd;
+
+            const Chunk* p1 = pattern_data_ptr(_1st);
+            const std::vector<Chunk> buf1(p1, p1 + PATTERN_SIZE / sizeof(Chunk));
+            const std::string temps = Copy(sd.pattern_names[_1st].str(), 9, 33);
+            copy_pattern(_1st, _2nd);
+            if (shift_pressed()) {
+                sd.pattern_names[_1st].assign(Copy(sd.pattern_names[_1st].str(), 1, 8) +
+                                              Copy(sd.pattern_names[_2nd].str(), 9, 33));
+            }
+            std::copy(buf1.begin(), buf1.end(), pattern_data_ptr(_2nd));
+            if (shift_pressed()) sd.pattern_names[_2nd].assign(Copy(sd.pattern_names[_2nd].str(), 1, 8) + temps);
+
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+        }
+        break;
+
+    case kDELETE:
+    case kNPdel:
+        // Shift+Delete: カーソルのパターンを削除して後ろを詰める (番号の部分 2〜11 文字目はそのまま)
+        if (shift_pressed()) {
+            for (int temp = cur; temp <= 127 - 1; ++temp) {
+                copy_pattern(B(temp), B(temp + 1));
+                auto& name = sd.pattern_names[temp];
+                const std::string next = sd.pattern_names[temp + 1].str();
+                name.assign(Copy(next, 1, 1) + Copy(name.str(), 2, 10) + Copy(next, 12, 30));
+                pattern_name_chr(B(temp), 9) = pattern_name_chr(B(temp + 1), 9);
+            }
+            std::memset(pattern_data_ptr(127), 0, PATTERN_SIZE);
+            sd.pattern_names[127].assign(" " + Copy(sd.pattern_names[127].str(), 2, 10));
+            pattern_name_chr(127, 9) = '\x0e';
+
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+        }
+        break;
+
+    case kINSERT:
+    case kNPins:
+        // Shift+Insert: カーソルの位置に空のパターンを挿入する
+        if (shift_pressed()) {
+            for (int temp = 127 - 1; temp >= cur; --temp) {
+                copy_pattern(B(temp + 1), B(temp));
+                auto& name = sd.pattern_names[temp + 1];
+                const std::string prev = sd.pattern_names[temp].str();
+                name.assign(Copy(prev, 1, 1) + Copy(name.str(), 2, 10) + Copy(prev, 12, 30));
+                pattern_name_chr(B(temp + 1), 9) = pattern_name_chr(B(temp), 9);
+            }
+            std::memset(pattern_data_ptr(cur), 0, PATTERN_SIZE);
+            sd.pattern_names[cur].assign(" " + Copy(sd.pattern_names[cur].str(), 2, 10));
+            pattern_name_chr(cur, 9) = '\x0e';
+
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    ShowC3Str(screen_ptr, B(mn_environment.xpos + 13), mn_environment.desc_pos,
+              " [`USED`:~" + ExpStrL(Num2str(_nm_patterns, 10) + "~/" + Num2str(128, 10), 8, ' ') + "]" +
+                  " [`MARKED`:~" + ExpStrL(Num2str(_patts_marked(), 10), 3, ' ') + "~] ",
+              dialog_background + dialog_context_dis, dialog_background + dialog_context,
+              dialog_background + dialog_border);
+
+    if (!(play_status() != isStopped && tracing)) {
+        pattern_patt = cur;
+        PATTERN_page_refresh(pattern_page);
+    }
+
+    pattern_names_to_list();
+    mn_environment.do_refresh = true;
+    mn_environment.refresh();
+}
+
+// Ctrl+P: パターン一覧 (page はカーソルを置く項目、1 始まり)
+void PATTERN_LIST(uint8_t page)
+{
+    static const uint16_t new_keys[8] = { kESC, kENTER, kF1, kF2, kCtrlS, kF3, kCtrlL, kShF3 };
+    {
+        PlayerLock lock;
+        songdata_crc = pattern_list_crc();
+    }
+
+    for (;;) {   // _jmp1
+        if (_force_program_quit) return;
+
+        {
+            PlayerLock lock;
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+            count_used_patterns();
+            pattern_names_to_list();
+        }
+
+        uint16_t old_keys[8];
+        std::memcpy(old_keys, mn_setting.terminate_keys, sizeof(old_keys));
+        std::memcpy(mn_setting.terminate_keys, new_keys, sizeof(new_keys));
+
+        mn_setting.center_box = true;
+        mn_setting.cycle_moves = false;
+        mn_environment.edit_pos = 11;
+        mn_setting.edit_contents = true;
+        mn_environment.ext_proc = pattern_list__proc;
+        mn_setting.terminate_keys[2] = kF1;
+        mn_environment.hlight_chrs = 1;
+        pattern_list__page = B(Menu(pattern_list_items, 0, 0, page, 42, B(MAX_PATTERN_ROWS + 4), 128, " PATTERN LiST "));
+
+        std::memcpy(mn_setting.terminate_keys, old_keys, sizeof(old_keys));
+        mn_setting.edit_contents = false;
+        mn_environment.ext_proc = nullptr;
+        mn_setting.terminate_keys[2] = 0;
+        mn_environment.hlight_chrs = 0;
+        page = pattern_list__page;
+
+        {
+            PlayerLock lock;
+            list_to_pattern_names();
+        }
+
+        const uint16_t key = mn_environment.keystroke;
+        if (key == kF1) {
+            // ヘルプ (HELP) は未実装。一覧に戻る
+            continue;
+        }
+        if (key == kF2 || key == kCtrlS) {
+            pattern2use = B(pattern_list__page - 1);
+            FILE_save(L"a2p", false);
+            pattern2use = BYTE_NULL;
+            continue;
+        }
+        if (key == kF3 || key == kShF3 || key == kCtrlL) {
+            // Shift+F3 (前回のファイルをそのまま読み込む) も、本クローン版ではファイルを選ばせる
+            pattern2use = B(pattern_list__page - 1);
+            FILE_open(L"AdLib Tracker II パターン (*.a2p)\0*.a2p\0");
+            pattern2use = BYTE_NULL;
+            continue;
+        }
+        break;
+    }
+
+    PlayerLock lock;
+    if (pattern_list_crc() != songdata_crc) module_archived = false;
+}
+
+// Shift+Alt+P: 貼り付け先のパターンを選ぶ一覧。選んだ項目の番号 (1 始まり) を返し、やめたら BYTE_NULL
+uint8_t PATTERN_LIST_alt(uint8_t page)
+{
+    std::string obj_name;
+    switch (clipboard.object_type) {
+    case objNote: obj_name = "NOTE"; break;
+    case objInstrumentDef: obj_name = "iNSTRUMENT"; break;
+    case objEffect: obj_name = "1ST EFFECT"; break;
+    case objEffect2: obj_name = "2ND EFFECT"; break;
+    case objLine: obj_name = "LiNE"; break;
+    case objTrack: obj_name = "TRACK"; break;
+    case objPattern: obj_name = "PATTERN"; break;
+    case objMarkedBlock: obj_name = "BLOCK"; break;
+    default: return BYTE_NULL;
+    }
+
+    {
+        PlayerLock lock;
+        count_used_patterns();
+        pattern_names_to_list();
+    }
+
+    for (;;) {   // _jmp1
+        if (_force_program_quit) return BYTE_NULL;
+
+        mn_setting.center_box = true;
+        mn_setting.cycle_moves = false;
+        mn_environment.ext_proc = pattern_list__proc;
+        mn_setting.terminate_keys[2] = kF1;
+        pattern_list__page = B(Menu(pattern_list_items, 0, 0, page, 42, 22, 128,
+                                    " PATTERN LiST | PASTE \"" + obj_name + "\" "));
+        mn_environment.ext_proc = nullptr;
+        mn_setting.terminate_keys[2] = 0;
+        page = pattern_list__page;
+
+        {
+            PlayerLock lock;
+            list_to_pattern_names();
+        }
+
+        // ヘルプ (HELP) は未実装。一覧に戻る
+        if (mn_environment.keystroke == kF1) continue;
+        break;
+    }
+
+    return mn_environment.keystroke != kESC ? pattern_list__page : BYTE_NULL;
 }
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
@@ -5291,7 +5756,21 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kAltP:
                 if (shift_pressed()) {
-                    // 選んだパターンへの貼り付け (PATTERN_LIST_alt。パターン一覧とともに実装する)
+                    // 一覧で選んだパターン (マークしたパターンがあればそのすべて) へ貼り付ける
+                    uint8_t temp;
+                    {
+                        PlayerUnlock unlock;
+                        temp = PATTERN_LIST_alt(pattern_list__page);
+                    }
+                    if (temp != BYTE_NULL) {
+                        if (_patts_marked() != 0) {
+                            for (int temp2 = 0; temp2 <= 127; ++temp2) {
+                                if (pattern_name_chr(B(temp2), 1) != ' ') paste_object_alt(B(temp2), page, hpos);
+                            }
+                        } else {
+                            paste_object_alt(B(temp - 1), page, hpos);
+                        }
+                    }
                 } else {
                     paste_object(pattern, page, hpos);
                 }
@@ -5394,10 +5873,21 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 }
                 break;
 
+            case kCtrlP: {
+                const bool in_trace = play_status() != isStopped && tracing;
+                PlayerUnlock unlock;
+                if (!in_trace) {
+                    PATTERN_LIST(B(pattern_patt + 1));
+                } else {
+                    PATTERN_LIST(B(old_pattern_patt + 1));
+                    old_pattern_patt = B(pattern_list__page - 1);
+                }
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlO:
-            case kCtrlP:
             case kCtrlH:
             case kCtrlI:
             case kCtrlE:
@@ -6346,11 +6836,22 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 }
                 break;
 
+            case kCtrlP: {
+                const bool in_trace = play_status() != isStopped && tracing;
+                PlayerUnlock unlock;
+                if (!in_trace) {
+                    PATTERN_LIST(B(pattern_patt + 1));
+                } else {
+                    PATTERN_LIST(B(old_pattern_patt + 1));
+                    old_pattern_patt = B(pattern_list__page - 1);
+                }
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlB:
             case kCtrlO:
-            case kCtrlP:
             case kCtrlF:
             case kCtrlH:
             case kCtrlI:

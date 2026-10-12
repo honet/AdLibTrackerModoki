@@ -105,7 +105,7 @@ void sound_done()
     g_hardware.reset();
 }
 
-bool sound_open_song(const std::wstring& path, uint8_t pattern, std::wstring& error)
+bool sound_open_song(const std::wstring& path, uint8_t pattern, bool to_marked, std::wstring& error)
 {
     if (!g_player) {
         error = L"サウンドが初期化されていません";
@@ -127,7 +127,7 @@ bool sound_open_song(const std::wstring& path, uint8_t pattern, std::wstring& er
         std::lock_guard lock(g_driver->mutex());
         std::shared_ptr<Song> song = g_player->song();
         g_player->stopPlaying();
-        const bool ok = LoadPatternModule(path, *song, pattern, error);
+        const bool ok = LoadPatternModule(path, *song, pattern, to_marked, error);
         g_player->setSong(song);
         return ok;
     }

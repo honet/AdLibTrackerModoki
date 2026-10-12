@@ -21,8 +21,8 @@ ModuleKind GetModuleKind(const std::wstring& path);
 // 曲全体を読み込む形式のファイルを song へ読み込む。失敗時は false を返し、error に理由を入れる。
 bool LoadSongModule(const std::wstring& path, Song& song, const Song::Defaults& defaults, std::wstring& error);
 
-// A2P を song のパターン pattern へ読み込む
-bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, std::wstring& error);
+// A2P を song のパターン pattern (to_marked のときはマークしたパターンすべて) へ読み込む
+bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, bool to_marked, std::wstring& error);
 
 // ファイル選択ダイアログ用のフィルタ (本家の FILE_open のマスクと同じ拡張子)
 const wchar_t* ModuleFileFilter();

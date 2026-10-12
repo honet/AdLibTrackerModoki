@@ -39,8 +39,8 @@ bool sound_init(HWND hwnd);
 void sound_done();
 
 // 曲を読み込む (本家と同じく再生は停止状態になる)。
-// A2P (パターン) の場合は曲はそのままで、パターン pattern へ読み込む。
-bool sound_open_song(const std::wstring& path, uint8_t pattern, std::wstring& error);
+// A2P (パターン) の場合は曲はそのままで、パターン pattern (to_marked のときはマークしたパターンすべて) へ読み込む。
+bool sound_open_song(const std::wstring& path, uint8_t pattern, bool to_marked, std::wstring& error);
 void sound_play();
 void sound_stop();
 

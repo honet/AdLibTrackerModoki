@@ -53,8 +53,21 @@ namespace
     }
 }
 
-bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, std::wstring& error)
+bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, bool to_marked, std::wstring& error)
 {
+    // パターン名の先頭が ' ' でなければマークしている (パターン一覧の Space)
+    const auto is_marked = [&song](uint8_t patt) { return song.data().pattern_names[patt].data[0] != ' '; };
+    // 読み込み先のパターンごとに fn を呼ぶ
+    const auto for_each_target = [&](const auto& fn) {
+        if (!to_marked) {
+            fn(pattern);
+            return;
+        }
+        for (int temp = 0; temp <= 127; ++temp) {
+            if (is_marked(static_cast<uint8_t>(temp))) fn(static_cast<uint8_t>(temp));
+        }
+    };
+
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
         error = L"ファイルを開けません";
@@ -100,13 +113,15 @@ bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, std::wstring
         copyTo(&old_hash_buffer->data, sizeof(OldVariableData1), unpacked);
 
         OldImportContext ctx{ song };
-        for (int line = 0; line <= 0x3f; ++line) {
-            for (int chan = 1; chan <= 9; ++chan) {
-                import_old_a2m_event1(ctx, pattern, static_cast<uint8_t>(line), static_cast<uint8_t>(chan),
-                                      old_hash_buffer->data[0][line][chan - 1], false);
+        for_each_target([&](uint8_t patt) {
+            for (int line = 0; line <= 0x3f; ++line) {
+                for (int chan = 1; chan <= 9; ++chan) {
+                    import_old_a2m_event1(ctx, patt, static_cast<uint8_t>(line), static_cast<uint8_t>(chan),
+                                          old_hash_buffer->data[0][line][chan - 1], false);
+                }
             }
-        }
-        set_pattern_name(song, pattern, lower_name_only(path));
+            set_pattern_name(song, patt, lower_name_only(path));
+        });
     }
 
     if (header.ffver >= 5 && header.ffver <= 8) {
@@ -116,13 +131,15 @@ bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, std::wstring
         decompressOld(static_cast<uint8_t>(8 - header.ffver), buf1, header.b0len, unpacked);
         copyTo(&hash_buffer->data, sizeof(OldVariableData2), unpacked);
 
-        for (int line = 0; line <= 0x3f; ++line) {
-            for (int chan = 1; chan <= 18; ++chan) {
-                import_old_a2m_event2(song, pattern, static_cast<uint8_t>(line), static_cast<uint8_t>(chan),
-                                      hash_buffer->data[0][chan - 1][line]);
+        for_each_target([&](uint8_t patt) {
+            for (int line = 0; line <= 0x3f; ++line) {
+                for (int chan = 1; chan <= 18; ++chan) {
+                    import_old_a2m_event2(song, patt, static_cast<uint8_t>(line), static_cast<uint8_t>(chan),
+                                          hash_buffer->data[0][chan - 1][line]);
+                }
             }
-        }
-        set_pattern_name(song, pattern, lower_name_only(path));
+            set_pattern_name(song, patt, lower_name_only(path));
+        });
     }
 
     if (header.ffver >= 9 && header.ffver <= FFVER_A2P) {
@@ -139,14 +156,23 @@ bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, std::wstring
 
         if (header2.ffver == 9) {
             APACK_decompress(buf1.data(), buf1.size(), unpacked);
-            copyToField(song.patterns(), song.patterns().block[pattern / 8][pattern % 8], unpacked);
-            set_pattern_name(song, pattern, lower_name_only(path));
+            if (to_marked) {
+                // オリジナルどおり、名前はマークしていないパターンも含めてすべて書き換える
+                for (int temp = 0; temp <= 127; ++temp) {
+                    const uint8_t patt = static_cast<uint8_t>(temp);
+                    if (is_marked(patt)) copyToField(song.patterns(), song.patterns().block[patt / 8][patt % 8], unpacked);
+                    set_pattern_name(song, patt, lower_name_only(path));
+                }
+            } else {
+                copyToField(song.patterns(), song.patterns().block[pattern / 8][pattern % 8], unpacked);
+                set_pattern_name(song, pattern, lower_name_only(path));
+            }
         } else if (header2.ffver == 10) {
             APACK_decompress(buf1.data(), buf1.size(), unpacked);
-            import_pattern_with_name(song, pattern, path, unpacked);
+            for_each_target([&](uint8_t patt) { import_pattern_with_name(song, patt, path, unpacked); });
         } else {
             LZH_decompress(buf1.data(), buf1.size(), header2.b0len, unpacked);
-            import_pattern_with_name(song, pattern, path, unpacked);
+            for_each_target([&](uint8_t patt) { import_pattern_with_name(song, patt, path, unpacked); });
         }
     }
 
