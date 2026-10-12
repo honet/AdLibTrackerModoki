@@ -118,7 +118,14 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>c86ctl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)third_party\c86ctl\bin\x64-dbg\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64-dbg\c86ctl.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64-dbg\c86ctl.pdb" "$(OutDir)"</Command>
+      <Message>c86ctl.dll / c86ctl.pdb を出力フォルダへコピー</Message>
+    </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
@@ -137,7 +144,14 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>c86ctl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)third_party\c86ctl\bin\x64\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.dll" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Command>
+      <Message>c86ctl.dll / c86ctl.pdb を出力フォルダへコピー</Message>
+    </PostBuildEvent>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
@@ -148,6 +162,8 @@
     <ClInclude Include="platform\System.h" />
     <ClInclude Include="platform\input\Keyboard.h" />
     <ClInclude Include="platform\video\Direct2DRenderer.h" />
+    <ClInclude Include="third_party\c86ctl\c86ctl.h" />
+    <ClInclude Include="third_party\c86ctl\cbus_boardtype.h" />
     <ClInclude Include="ui\Font8x16.h" />
     <ClInclude Include="ui\TxtScrIO.h" />
     <ClInclude Include="ui\MainScreen.h" />
