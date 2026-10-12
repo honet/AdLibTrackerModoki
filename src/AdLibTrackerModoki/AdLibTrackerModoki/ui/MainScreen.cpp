@@ -61,10 +61,27 @@ double decay_bar_rise = 3.0;
 double decay_bar_fall = 0.3;
 
 // --- 画面・編集の状態 (adt2unit.pas / adt2sys.pas / typcons1.inc のグローバル変数) ---
-// ノート記録は未実装のため、その状態は既定値のまま
 bool tracing = false;
-bool track_notes = false;
 bool marking = false;
+
+// ノート記録 (Ctrl+Space)。track_chan_start から nm_track_chan 個のトラックに記録する
+bool track_notes = false;
+bool track_notes_ins = false;   // 現在の楽器で記録する (FALSE ならトラックで鳴っている楽器)
+uint8_t track_chan_start = 1;
+uint8_t nm_track_chan = 1;
+uint8_t old_nm_track_chan = 0;
+uint8_t old_track_chan_start = 0;
+uint8_t rec_correction = 0;     // 何行前に記録するか (play_pos_buf の添字)
+
+void cancel_note_recorder()
+{
+    if (track_notes) {
+        old_nm_track_chan = nm_track_chan;
+        old_track_chan_start = track_chan_start;
+        track_notes = false;
+        nm_track_chan = 1;
+    }
+}
 
 // ブロックの選択 (adt2unit.pas / adt2ext2.pas / adt2extn.pas)
 // block_x0..block_y1 は描画のたびに選択の始点とカーソル位置から計算する (is_in_block)
@@ -946,8 +963,26 @@ void STATUS_LINE_refresh()
     if (p.debugging && ps != isStopped) show_str(16, ys, "DEBUG", main_background + main_hi_stat_line);
     else show_str(16, ys, "DEBUG", main_background + main_stat_line);
 
-    if (p.debugging && ps == isStopped) show_str(22, ys, "TRACKiNG", main_background + main_hi_stat_line);
-    else show_str(22, ys, "TRACKiNG", main_background + main_stat_line);
+    // ノート記録中は NRECM と記録位置の補正 (rec_correction) を表示し、記録中の再生では点滅させる
+    uint8_t tracking_indicator_attr[2];   // [FALSE, TRUE]
+    tracking_indicator_attr[1] = main_background + main_hi_stat_line;
+    if (ps == isPlaying && tracing) {
+        if (track_notes_ins) tracking_indicator_attr[0] = B((main_behavior << 4) & 0xf0);
+        else tracking_indicator_attr[0] = B((main_hi_stat_line << 4) & 0xf0);
+    } else {
+        tracking_indicator_attr[0] = main_background + main_stat_line;
+    }
+
+    if (track_notes) {
+        const uint8_t attr = (jump_mark_mode && mark_lines) ? main_background + main_dis_stat_line
+                                                            : main_background + main_hi_stat_line;
+        show_cstr(22, ys, std::string("NRECM~:\x1E") + char('0' + rec_correction) + "~",
+                  tracking_indicator_attr[_NRECM_blink_flag ? 1 : 0], attr);
+    } else if (p.debugging && ps == isStopped) {
+        show_str(22, ys, "TRACKiNG", main_background + main_hi_stat_line);
+    } else {
+        show_str(22, ys, "TRACKiNG", main_background + main_stat_line);
+    }
 
     if (linefeed && command_typing != 0) show_str(B(MAX_COLUMNS - 16), ys, "\x7F", main_background + main_behavior);
     else show_str(B(MAX_COLUMNS - 16), ys, "\x7F", main_background + main_behavior_dis);
@@ -1248,7 +1283,9 @@ void PATTERN_page_refresh(uint8_t page)
         else if (in_4op_tracks_hi(ch)) temps = "~\xF4~" + ExpStrR(Num2str(temp1, 10), 2, ' ') + "~ ~";
         else temps = "~\xF5~" + ExpStrR(Num2str(temp1, 10), 2, ' ') + "~ ~";
 
-        const uint8_t chan_attr = pattern_bckg + pattern_border;
+        // ノート記録の対象のトラックは強調する
+        const uint8_t chan_attr = (track_notes && temp1 >= track_chan_start && temp1 <= track_chan_start + nm_track_chan - 1)
+                                      ? B((main_behavior << 4) & 0xf0) : pattern_bckg + pattern_border;
         show_cstr(B(8 + (temp1 - (chan_pos - 1) - 1) * 15), 9, temps, chan_attr, pattern_bckg + pattern_4op_indic);
     }
 
@@ -3087,6 +3124,137 @@ void DEBUG_INFO()
 // トレース (ipattern.inc の PATTERN_trace)
 // ---------------------------------------------------------------------------
 
+// MIDI ボード (キーボードを鍵盤として使う) のキー (typcons1.inc、[1..29])
+const uint8_t board_scancodes[29] = {
+    0x2c, 0x1f, 0x2d, 0x20, 0x2e, 0x2f, 0x22, 0x30, 0x23, 0x31, 0x24, 0x32,
+    0x10, 0x03, 0x11, 0x04, 0x12, 0x13, 0x06, 0x14, 0x07, 0x15, 0x08, 0x16, 0x17, 0x0a, 0x18, 0x0b, 0x19,
+};
+
+inline uint8_t LO(uint16_t value) { return static_cast<uint8_t>(value & 0xff); }
+inline uint8_t HI(uint16_t value) { return static_cast<uint8_t>(value >> 8); }
+inline char UpCase(char c) { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c; }
+
+std::string Upper(std::string str)
+{
+    for (char& c : str) c = UpCase(c);
+    return str;
+}
+
+// put_chunk (SDL 版)
+void put_chunk(uint8_t pattern, uint8_t line, uint8_t channel, const Chunk& chunk)
+{
+    if (pattern < 128 && channel >= 1 && channel <= 20) {
+        P().song()->putChunk(pattern, line, channel, chunk);
+        module_archived = false;
+    }
+}
+
+// 楽器データ (songdata.instr_data[ins]) の先頭
+const uint8_t* instr_data_bytes(uint8_t ins)
+{
+    return reinterpret_cast<const uint8_t*>(&at1(songdata().instr_data, ins));
+}
+
+void change_current_inst(int dir);
+
+// トレース中のノート記録 (PATTERN_trace 内。ロックを取った状態で呼ぶ)
+void trace_record_notes(uint16_t fkey2)
+{
+    A2Player& p = P();
+    const FixedSongData& sd = songdata();
+    const uint8_t curr_ch = track_chan_start;
+    uint8_t track_ch = 0;
+    bool flag = false;
+    uint8_t track_ch_key[21];   // [1..20]
+    std::fill(std::begin(track_ch_key), std::end(track_ch_key), BYTE_NULL);
+    if (!ctrl_pressed() && !alt_pressed()) {
+        for (int idx = 1; idx <= 29; ++idx) {
+            if (scankey(board_scancodes[idx - 1])) {
+                flag = true;
+                if (track_ch < nm_track_chan) ++track_ch;
+                else break;
+                track_ch_key[track_ch] = B(idx);
+            }
+        }
+    }
+    if (!(fkey2 == kWeird || (flag && track_notes))) return;
+
+    uint8_t idx2 = 1;
+    for (int idx = 1; idx <= nm_track_chan; ++idx) {
+        const int note = track_ch_key[idx2] + 12 * (current_octave - 1);
+        if (!(fkey2 == kWeird || (track_ch_key[idx2] != BYTE_NULL && note >= 1 && note <= 12 * 8 + 1))) continue;
+
+        // 記録する位置 (rec_correction 行前、またはマーク行に合わせる)
+        uint8_t patt_nm, line_nm;
+        if (!(jump_mark_mode && mark_lines) && rec_correction != 0) {
+            patt_nm = HI(p.play_pos_buf[rec_correction]);
+            line_nm = LO(p.play_pos_buf[rec_correction]);
+        } else {
+            patt_nm = p.current_pattern;
+            line_nm = p.current_line;
+        }
+        const uint8_t ml = p.mark_line;
+        if (jump_mark_mode && mark_lines && ml != 0 && line_nm % ml != 0) {
+            uint8_t dif1 = line_nm;
+            while (dif1 % ml != 0 && dif1 <= sd.patt_len) ++dif1;
+            if (dif1 > sd.patt_len) dif1 = 0;
+            uint8_t dif2 = line_nm;
+            while (dif2 % ml != 0 && dif2 > 0) --dif2;
+            if (std::abs(dif1 - line_nm) <= std::abs(line_nm - dif2)) line_nm = dif1;
+            else line_nm = dif2;
+        }
+
+        const uint8_t ch = B(curr_ch + idx - 1);
+        Chunk chunk{};
+        Chunk chunk2{};
+        get_chunk(patt_nm, line_nm, ch, chunk);
+        if (fkey2 != kWeird) {
+            if (!right_shift_pressed()) chunk.note = B(note);
+            else chunk.note = B(note + fixed_note_flag);
+            if (!(chunk.effect_def == ef_TonePortamento || chunk.effect_def == ef_TPortamVolSlide)) {
+                if (track_notes_ins) chunk.instr_def = current_inst;
+                else chunk.instr_def = std::max<uint8_t>(p.voice_table[ch], 1);
+                // 4OP の組の相手のトラック
+                const auto pair_track = [&](uint8_t ch2, uint8_t pair_ins) {
+                    get_chunk(patt_nm, line_nm, ch2, chunk2);
+                    chunk2.note = 0;
+                    if (!track_notes || track_notes_ins) chunk2.instr_def = pair_ins != 0 ? pair_ins : current_inst;
+                    else chunk2.instr_def = std::max<uint8_t>(p.voice_table[ch2], 1);
+                    if (p.channel_flag[ch2]) put_chunk(patt_nm, line_nm, ch2, chunk2);
+                };
+                if (p.is_4op_chan(ch) && in_4op_tracks_lo(ch)) pair_track(B(ch - 1), HI(get_4op_to_test()));
+                else if (p.is_4op_chan(ch) && in_4op_tracks_hi(ch)) pair_track(B(ch + 1), LO(get_4op_to_test()));
+            }
+        } else {
+            chunk.note = BYTE_NULL;
+            chunk.instr_def = 0;
+        }
+
+        if (p.channel_flag[ch] && !p.ignore_note_once[ch]) {
+            p.ignore_note_once[ch] = true;
+            put_chunk(patt_nm, line_nm, ch, chunk);
+            // 再生位置より前に記録したときはここで鳴らす (後ろなら再生で鳴る)
+            if (patt_nm != p.current_pattern || line_nm <= p.current_line) {
+                if (chunk.instr_def != 0) p.load_instrument(instr_data_bytes(chunk.instr_def), ch);
+                if (p.is_4op_chan(ch)) {
+                    const uint8_t ch2 = in_4op_tracks_lo(ch) ? B(ch - 1) : B(ch + 1);
+                    get_chunk(patt_nm, line_nm, ch2, chunk2);
+                    p.load_instrument(instr_data_bytes(chunk2.instr_def), ch2);
+                }
+                if (chunk.note != BYTE_NULL) p.output_note(chunk.note & 0x7f, chunk.instr_def, ch, true, true);
+            }
+            ++idx2;
+        }
+
+        if (p.play_status == PlayStatus::Paused) {
+            p.debugging = false;
+            p.replay_forbidden = false;
+            p.play_status = PlayStatus::Playing;
+        }
+    }
+    keyboard_reset_buffer();
+}
+
 uint16_t PATTERN_trace()
 {
     {
@@ -3133,8 +3301,13 @@ uint16_t PATTERN_trace()
             if (keypressed()) key = getkey();
         }
 
+        const uint8_t old_hpos = pattern_hpos;
         if (key != WORD_NULL) {
             fkey2 = key;
+            if (track_notes && midiboard) {
+                PlayerLock lock;
+                trace_record_notes(fkey2);
+            }
             if (fkey2 == kF3 || fkey2 == kShF3 || fkey2 == kCtrlL) {
                 FILE_open();
             } else if (fkey2 == kCtrlD) {
@@ -3193,12 +3366,71 @@ uint16_t PATTERN_trace()
                 PlayerLock lock;
                 A2Player& p = P();
                 switch (fkey2) {
+                case kCtLbr:
+                case kCtRbr:
+                    if (!shift_pressed()) change_current_inst(fkey2 == kCtLbr ? -1 : +1);
+                    break;
+
                 case kUP:
-                    if (!shift_pressed() && (track_notes || (!p.debugging && p.play_status == PlayStatus::Playing))) p.rewind = true;
+                    if (shift_pressed() && track_notes) {
+                        if (!(jump_mark_mode && mark_lines) && rec_correction < 9) ++rec_correction;
+                    } else if (!shift_pressed() && (track_notes || (!p.debugging && p.play_status == PlayStatus::Playing))) {
+                        p.rewind = true;
+                    }
                     break;
 
                 case kDOWN:
-                    if (!shift_pressed() && (track_notes || (!p.debugging && p.play_status == PlayStatus::Playing))) p.fast_forward = true;
+                    if (shift_pressed() && track_notes) {
+                        if (!(jump_mark_mode && mark_lines) && rec_correction > 0) --rec_correction;
+                    } else if (!shift_pressed() && (track_notes || (!p.debugging && p.play_status == PlayStatus::Playing))) {
+                        p.fast_forward = true;
+                    }
+                    break;
+
+                case kCtLEFT:
+                    if (track_notes && !p.debugging && p.play_status == PlayStatus::Playing) p.rewind = true;
+                    break;
+
+                case kCtRGHT:
+                    if (track_notes && !p.debugging && p.play_status == PlayStatus::Playing) p.fast_forward = true;
+                    break;
+
+                case kSPACE:
+                    if (ctrl_pressed()) {
+                        // ノート記録の開始・終了
+                        if (!track_notes) track_notes = true;
+                        else cancel_note_recorder();
+                        if (track_notes) {
+                            track_notes_ins = true;
+                            if (p.debugging) {
+                                p.debugging = false;
+                                stop_playing();
+                            }
+                            track_chan_start = count_channel(pattern_hpos);
+                            midiboard = true;
+                        }
+                        fkey2 = WORD_NULL;
+                        PATTERN_ORDER_page_refresh(pattord_page);
+                        PATTERN_page_refresh(pattern_page);
+                    } else if (track_notes) {
+                        track_notes_ins = !alt_pressed();
+                    } else if (p.play_status == PlayStatus::Paused) {
+                        // 一時停止中はデバッグモードで再開する
+                        p.debugging = true;
+                        p.replay_forbidden = false;
+                        p.play_status = PlayStatus::Playing;
+                        PATTERN_ORDER_page_refresh(pattord_page);
+                        PATTERN_page_refresh(pattern_page);
+                    }
+                    break;
+
+                case kShF6:
+                    cancel_note_recorder();
+                    p.debugging = true;
+                    p.replay_forbidden = false;
+                    p.play_status = PlayStatus::Playing;
+                    PATTERN_ORDER_page_refresh(pattord_page);
+                    PATTERN_page_refresh(pattern_page);
                     break;
 
                 case kLEFT:
@@ -3235,7 +3467,9 @@ uint16_t PATTERN_trace()
                 case kESC:
                     nope = true;
                     p.debugging = false;
-                    if (fkey2 == kENTER || (shift_pressed() && fkey2 == kESC)) {
+                    if (fkey2 == kESC && track_notes) {
+                        cancel_note_recorder();
+                    } else if (fkey2 == kENTER || (shift_pressed() && fkey2 == kESC)) {
                         reset_pos = false;
                         if (fkey2 == kENTER) {
                             p.replay_forbidden = true;
@@ -3313,6 +3547,7 @@ uint16_t PATTERN_trace()
                     break;
                 }
             }
+            if (track_notes && pattern_hpos != old_hpos) cancel_note_recorder();
         }
 
         if (pending_track_dialog) {
@@ -3333,6 +3568,10 @@ uint16_t PATTERN_trace()
     if (use_large_cursor) WideCursor();
     else ThinCursor();
     tracing = false;
+    {
+        PlayerLock lock;
+        if (play_status() != isStopped) cancel_note_recorder();
+    }
 
     if (nope && reset_pos) {
         pattord_page = old_pattord_page;
@@ -3368,9 +3607,60 @@ bool process_play_keys(uint16_t fkey, uint8_t pattern)
     const bool nosync_f5 = (!nosync_by_default && fkey == kAltF5) || (nosync_by_default && fkey == kF5);
 
     switch (fkey) {
+    case kAltF6:
+        // 今のパターンだけを繰り返し再生する
+        if (!p.play_single_patt) {
+            p.start_pattern = pattern;
+            p.play_single_patt = true;
+            p.no_sync_playing = true;
+            start_playing();
+            p.repeat_pattern = true;
+            return want_trace();
+        }
+        return true;
+
+    case kCtrlF8:
+    case kCtrlF9: {
+        // カーソルの行から再生する (Ctrl+F9 はパターンを繰り返す)
+        const bool repeat = fkey == kCtrlF9;
+        if (p.play_single_patt && p.play_status == PlayStatus::Paused) {
+            p.replay_forbidden = false;
+            p.play_status = PlayStatus::Playing;
+            return want_trace();
+        }
+        switch (p.play_status) {
+        case PlayStatus::Playing:
+            p.debugging = false;
+            p.repeat_pattern = repeat;
+            if (want_trace()) return true;
+            if (p.calc_pattern_pos(pattern) != BYTE_NULL) {
+                stop_playing();
+                calibrate_player(p.calc_pattern_pos(pattern), pattern_page, false);
+                if (repeat) p.repeat_pattern = true;
+            }
+            return false;
+        case PlayStatus::Stopped:
+            if (p.calc_pattern_pos(pattern) != BYTE_NULL) {
+                p.debugging = false;
+                calibrate_player(p.calc_pattern_pos(pattern), pattern_page, false);
+                p.repeat_pattern = repeat;
+                return want_trace();
+            }
+            return false;
+        case PlayStatus::Paused:
+            p.debugging = false;
+            p.repeat_pattern = repeat;
+            p.replay_forbidden = false;
+            p.play_status = PlayStatus::Playing;
+            return want_trace();
+        }
+        return false;
+    }
+
     case kF5:
     case kAltF5:
     case kShF5:
+        cancel_note_recorder();
         if (p.play_single_patt && p.play_status == PlayStatus::Paused) {
             p.replay_forbidden = false;
             p.play_status = PlayStatus::Playing;
@@ -3477,54 +3767,6 @@ constexpr uint8_t pattern_input_bckg = 0xb0;
 constexpr uint8_t pattern_input = 0x00;
 constexpr uint8_t pattern_input_warn = 0x80;
 
-// MIDI ボード (キーボードを鍵盤として使う) のキー (typcons1.inc、[1..29])
-const uint8_t board_scancodes[29] = {
-    0x2c, 0x1f, 0x2d, 0x20, 0x2e, 0x2f, 0x22, 0x30, 0x23, 0x31, 0x24, 0x32,
-    0x10, 0x03, 0x11, 0x04, 0x12, 0x13, 0x06, 0x14, 0x07, 0x15, 0x08, 0x16, 0x17, 0x0a, 0x18, 0x0b, 0x19,
-};
-
-// ノートレコーダーの状態 (ノートレコーダーは未実装のため track_notes は FALSE のまま)
-bool track_notes_ins = false;
-uint8_t track_chan_start = 1;
-uint8_t nm_track_chan = 1;
-uint8_t old_nm_track_chan = 0;
-uint8_t old_track_chan_start = 0;
-
-inline uint8_t LO(uint16_t value) { return static_cast<uint8_t>(value & 0xff); }
-inline uint8_t HI(uint16_t value) { return static_cast<uint8_t>(value >> 8); }
-inline char UpCase(char c) { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c; }
-
-std::string Upper(std::string str)
-{
-    for (char& c : str) c = UpCase(c);
-    return str;
-}
-
-void cancel_note_recorder()
-{
-    if (track_notes) {
-        old_nm_track_chan = nm_track_chan;
-        old_track_chan_start = track_chan_start;
-        track_notes = false;
-        nm_track_chan = 1;
-    }
-}
-
-// put_chunk (SDL 版)
-void put_chunk(uint8_t pattern, uint8_t line, uint8_t channel, const Chunk& chunk)
-{
-    if (pattern < 128 && channel >= 1 && channel <= 20) {
-        P().song()->putChunk(pattern, line, channel, chunk);
-        module_archived = false;
-    }
-}
-
-// 楽器データ (songdata.instr_data[ins]) の先頭
-const uint8_t* instr_data_bytes(uint8_t ins)
-{
-    return reinterpret_cast<const uint8_t*>(&at1(songdata().instr_data, ins));
-}
-
 // --- 元に戻す (Ctrl+Z) ---
 // オリジナルは SizeOf(tPATTERN_DATA) DIV 16 バイト、つまり pattern_patt から 8 パターン分を保存する
 
@@ -3624,6 +3866,23 @@ uint16_t get_4op_to_test()
         }
     }
     return result;
+}
+
+// 現在の楽器を 1 つ前 (dir = -1) / 後 (+1) にする ([ ] と Ctrl+[ ])。4OP の組の 2 つは飛ばす
+void change_current_inst(int dir)
+{
+    if (dir < 0 ? !(current_inst > 1) : !(current_inst < 255)) return;
+    const auto in_pair = []() { return current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test()); };
+    if (!(marked_instruments() == 2)) {
+        current_inst = B(current_inst + dir);
+        reset_marked_instruments();
+    } else if (!in_pair()) {
+        current_inst = B(current_inst + dir);
+    } else {
+        while ((dir < 0 ? current_inst > 1 : current_inst < 255) && in_pair()) current_inst = B(current_inst + dir);
+    }
+    instrum_page = current_inst;
+    keyboard_reset_buffer();
 }
 
 // エフェクトの値が範囲内か。command_typing のときは範囲内に直す。
@@ -4483,6 +4742,46 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         return temp1 == kF10 || _force_program_quit;
     };
 
+    // デバッグモードに入る (PATTERN_edit 内の enter_debug_mode)。ロックを取った状態で呼ぶ。F10 で終了するなら true
+    const auto enter_debug_mode = [&](uint8_t patt, uint8_t line) -> bool {
+        A2Player& p = P();
+        cancel_note_recorder();
+        if (!p.replay_forbidden) {
+            p.debugging = true;
+            p.play_status = PlayStatus::Playing;
+            return run_trace();
+        }
+        if (!p.play_single_patt && p.calc_pattern_pos(patt) != BYTE_NULL) {
+            {
+                PlayerUnlock unlock;
+                fade_out_playback(false);
+            }
+            calibrate_player(p.calc_pattern_pos(patt), line, true);
+            if (p.play_status != PlayStatus::Stopped) {
+                p.debugging = true;
+                p.play_status = PlayStatus::Playing;
+                p.replay_forbidden = false;
+                PATTERN_ORDER_page_refresh(pattord_page);
+                PATTERN_page_refresh(pattern_page);
+                return run_trace();
+            }
+        } else if (p.calc_pattern_pos(patt) == BYTE_NULL) {
+            // オーダーにないパターンは単独で再生する
+            {
+                PlayerUnlock unlock;
+                fade_out_playback(false);
+            }
+            p.play_single_patt = true;
+            p.no_sync_playing = true;
+            p.start_pattern = pattern_patt;
+            p.start_line = pattern_page;
+            start_playing();
+            p.debugging = true;
+            return run_trace();
+        }
+        return false;
+    };
+
     for (;;) {
         if (_force_program_quit) return kESC;
 
@@ -4520,7 +4819,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         }
 
         const uint8_t old_patt_page = page;
-        const uint8_t old_hpos = hpos;
+        uint8_t old_hpos = hpos;
         uint16_t fkey = process_events();
         if (fkey == WORD_NULL) {
             if (!keypressed()) {
@@ -4573,36 +4872,12 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             switch (fkey) {
             case kCHlbrk:
             case kCtLbr:
-                if (!shift_pressed() && current_inst > 1) {
-                    if (!(marked_instruments() == 2)) {
-                        --current_inst;
-                        reset_marked_instruments();
-                    } else if (!(current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test()))) {
-                        --current_inst;
-                    } else {
-                        while (current_inst > 1 && (current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test())))
-                            --current_inst;
-                    }
-                    instrum_page = current_inst;
-                    keyboard_reset_buffer();
-                }
+                if (!shift_pressed()) change_current_inst(-1);
                 break;
 
             case kCHrbrk:
             case kCtRbr:
-                if (!shift_pressed() && current_inst < 255) {
-                    if (!(marked_instruments() == 2)) {
-                        ++current_inst;
-                        reset_marked_instruments();
-                    } else if (!(current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test()))) {
-                        ++current_inst;
-                    } else {
-                        while (current_inst < 255 && (current_inst == HI(get_4op_to_test()) || current_inst == LO(get_4op_to_test())))
-                            ++current_inst;
-                    }
-                    instrum_page = current_inst;
-                    keyboard_reset_buffer();
-                }
+                if (!shift_pressed()) change_current_inst(+1);
                 break;
 
             case kLEFT:
@@ -4637,7 +4912,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kUP:
                 if (shift_pressed() && track_notes) {
-                    // ノートレコーダーの補正 (未実装)
+                    if (!(jump_mark_mode && mark_lines) && rec_correction < 9) ++rec_correction;
                 } else if (page > 0) {
                     --page;
                 } else if (!marking && cycle_pattern) {
@@ -4647,7 +4922,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kDOWN:
                 if (shift_pressed() && track_notes) {
-                    // ノートレコーダーの補正 (未実装)
+                    if (!(jump_mark_mode && mark_lines) && rec_correction > 0) --rec_correction;
                 } else if (page < last_line) {
                     ++page;
                 } else if (!marking && cycle_pattern) {
@@ -4850,7 +5125,20 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kSPACE:
                 if (ctrl_pressed() && !shift_pressed() && !alt_pressed()) {
-                    // ノートレコーダー (Ctrl+Space) は未実装
+                    // ノート記録の開始・終了 (記録するトラックはカーソルのトラックから)
+                    if (!track_notes) track_notes = true;
+                    else cancel_note_recorder();
+                    if (track_notes && p.play_status != PlayStatus::Stopped) stop_playing();
+                    if (track_notes) {
+                        track_notes_ins = true;
+                        if (p.debugging) {
+                            p.debugging = false;
+                            stop_playing();
+                        }
+                        track_chan_start = chan;
+                        nm_track_chan = 1;
+                        midiboard = true;
+                    }
                     fkey = WORD_NULL;
                 } else if (track_notes) {
                     track_notes_ins = !alt_pressed();
@@ -4922,7 +5210,17 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kAltQ:
                 if (track_notes) {
-                    // ノートレコーダーで前回のトラックの範囲に戻す (ノートレコーダーとともに実装する)
+                    // 前回記録したトラックの範囲に戻す
+                    if (old_nm_track_chan != 0 && old_track_chan_start != 0 &&
+                        old_track_chan_start + old_nm_track_chan - 1 <= sd.nm_tracks) {
+                        nm_track_chan = old_nm_track_chan;
+                        track_chan_start = old_track_chan_start;
+                        chan_pos = track_chan_start;
+                        hpos = 1;
+                        // オリジナルの「While (chan < chan_pos) do Inc(hpos)」は chan が変わらないため、
+                        // chan < chan_pos のときは止まらなくなる。そうでないときは何もしないので省く
+                        old_hpos = hpos;
+                    }
                 } else {
                     switch (quick_mark_type) {
                     case 0:   // トラック全体
@@ -4957,7 +5255,18 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kCtrlK:
                 if (track_notes) {
-                    // ノートレコーダー (未実装)
+                    // 記録するトラックすべてにキーオフを入れる
+                    if (nm_track_chan > 1) _save_pattern_to_undo();
+                    for (int idx = 1; idx <= nm_track_chan; ++idx) {
+                        const uint8_t ch = B(track_chan_start + idx - 1);
+                        if (!p.channel_flag[ch]) continue;
+                        get_chunk(pattern, pattern_page, ch, chunk);
+                        chunk.note = BYTE_NULL;
+                        chunk.instr_def = 0;
+                        put_chunk(pattern, pattern_page, ch, chunk);
+                        keyboard_reset_buffer();
+                    }
+                    next_line(page, linefeed);
                 } else {
                     get_chunk(pattern, pattern_page, chan, chunk);
                     chunk.note = BYTE_NULL;
@@ -5087,7 +5396,6 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             case kCtrlR:
             case kCtrlO:
             case kCtrlP:
-            case kCtrlF:
             case kCtrlH:
             case kCtrlI:
             case kCtrlE:
@@ -5095,33 +5403,37 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             case kCtrlG:
             case kCtrlM:
             case kF1:
-            case kShF6:
-            case kAltF6:
-            case kCtrlF8:
-            case kCtrlF9:
-                // ノートレコーダー・各種画面 (未実装)
+                // 各種画面 (未実装)
                 break;
 
-            case kBkSPC:
-                if (track_notes) {
-                    // ノートレコーダー (未実装)
-                } else {
-                    get_chunk(pattern, pattern_page, chan, chunk);
-                    const uint8_t cp = count_pos(hpos);
+            case kCtrlF:
+                cancel_note_recorder();
+                // 曲の設定 (SONG_VARIABLES) は未実装
+                break;
+
+            case kShF6:
+                if (enter_debug_mode(pattern, page)) return kF10;
+                break;
+
+            case kBkSPC: {
+                // カーソル位置の欄を消す (ノート記録中は記録するトラックすべて)
+                const auto clear_field = [&](uint8_t ch) {
+                    get_chunk(pattern, pattern_page, ch, chunk);
                     // 4OP の組の相手のトラックのノート (と楽器) も消す
                     const auto clear_pair = [&](bool clear_instr) {
-                        if (p.is_4op_chan(chan) && in_4op_tracks_lo(chan)) {
-                            get_chunk(pattern, pattern_page, B(chan - 1), chunk2);
+                        if (p.is_4op_chan(ch) && in_4op_tracks_lo(ch)) {
+                            get_chunk(pattern, pattern_page, B(ch - 1), chunk2);
                             chunk2.note = 0;
                             if (clear_instr) chunk2.instr_def = 0;
-                            put_chunk(pattern, pattern_page, B(chan - 1), chunk2);
-                        } else if (p.is_4op_chan(chan) && in_4op_tracks_hi(chan)) {
-                            get_chunk(pattern, pattern_page, B(chan + 1), chunk2);
+                            put_chunk(pattern, pattern_page, B(ch - 1), chunk2);
+                        } else if (p.is_4op_chan(ch) && in_4op_tracks_hi(ch)) {
+                            get_chunk(pattern, pattern_page, B(ch + 1), chunk2);
                             chunk2.note = 0;
                             if (clear_instr) chunk2.instr_def = 0;
-                            put_chunk(pattern, pattern_page, B(chan + 1), chunk2);
+                            put_chunk(pattern, pattern_page, B(ch + 1), chunk2);
                         }
                     };
+                    const uint8_t cp = count_pos(hpos);
                     // 0: ノート、1: 楽器、2: エフェクト 1、3: エフェクト 2
                     int field = -1;
                     if (command_typing != 0) {
@@ -5154,18 +5466,28 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                         chunk.effect2 = 0;
                         break;
                     }
-                    put_chunk(pattern, pattern_page, chan, chunk);
-                    switch (backspace_dir) {
-                    case 1:
-                        next_line(page, linefeed);
-                        break;
-                    case 2:
-                        if (page > 0) --page;
-                        else if (cycle_pattern) page = B(last_line);
-                        break;
+                    put_chunk(pattern, pattern_page, ch, chunk);
+                };
+                if (track_notes) {
+                    if (nm_track_chan > 1) _save_pattern_to_undo();
+                    for (int idx = 1; idx <= nm_track_chan; ++idx) {
+                        const uint8_t ch = B(track_chan_start + idx - 1);
+                        if (p.channel_flag[ch]) clear_field(ch);
                     }
+                } else {
+                    clear_field(chan);
+                }
+                switch (backspace_dir) {
+                case 1:
+                    next_line(page, linefeed);
+                    break;
+                case 2:
+                    if (page > 0) --page;
+                    else if (cycle_pattern) page = B(last_line);
+                    break;
                 }
                 break;
+            }
 
             case kCtPgUP:
             case kCtPgDN:
@@ -5203,7 +5525,13 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kCtLEFT:
                 if (track_notes) {
-                    // ノートレコーダー (未実装)
+                    // 記録するトラックを左へ広げる / 右端から狭める
+                    if (track_chan_start == chan && nm_track_chan > 1) {
+                        --nm_track_chan;
+                    } else if (track_chan_start > chan_pos) {
+                        --track_chan_start;
+                        ++nm_track_chan;
+                    }
                 } else if (!p.debugging && p.play_status == PlayStatus::Playing) {
                     p.rewind = true;
                 }
@@ -5211,7 +5539,14 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kCtRGHT:
                 if (track_notes) {
-                    // ノートレコーダー (未実装)
+                    // 記録するトラックを右へ広げる / 左端から狭める
+                    if (track_chan_start == chan &&
+                        track_chan_start + nm_track_chan - chan_pos < std::min<int>(MAX_TRACKS, sd.nm_tracks)) {
+                        ++nm_track_chan;
+                    } else if (track_chan_start < chan) {
+                        ++track_chan_start;
+                        --nm_track_chan;
+                    }
                 } else if (p.play_status == PlayStatus::Playing) {
                     p.fast_forward = true;
                 }
@@ -5233,7 +5568,10 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                             calibrate_player(B(p.calc_following_order(B(p.current_order + 1))), 0, false);
                         }
                     } else if (p.debugging && p.play_status == PlayStatus::Stopped) {
-                        // enter_debug_mode(SUCC(pattern), 0) (デバッグモードは未実装)
+                        if (enter_debug_mode(B(pattern + 1), 0)) {
+                            no_status_refresh = false;
+                            return kF10;
+                        }
                     }
                     no_status_refresh = false;
                 }
@@ -5268,8 +5606,9 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kF5: case kAltF5: case kShF5:
             case kF6:
-            case kF8: case kAltF8: case kShF8:
-            case kF9: case kAltF9: case kShF9:
+            case kAltF6:
+            case kF8: case kAltF8: case kShF8: case kCtrlF8:
+            case kF9: case kAltF9: case kShF9: case kCtrlF9:
                 trace = process_play_keys(fkey, pattern);
                 break;
 
@@ -5413,7 +5752,22 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                     if (!nope) {
                         fkey = kSPACE;
                         if (track_notes) {
-                            // ノートレコーダー (未実装)
+                            // ノート記録: カーソルの行から再生し、トレースしながら記録する
+                            if (p.calc_pattern_pos(pattern) != BYTE_NULL) {
+                                {
+                                    PlayerUnlock unlock;
+                                    fade_out_playback(false);
+                                }
+                                calibrate_player(p.calc_pattern_pos(pattern), page, true);
+                            } else {
+                                p.start_pattern = pattern;
+                                p.start_line = page;
+                                p.play_single_patt = true;
+                                p.no_sync_playing = true;
+                                start_playing();
+                                p.repeat_pattern = true;
+                            }
+                            if (run_trace()) return kF10;
                         } else if (sd.pattern_order[pattern] != BYTE_NULL &&
                                    !(p.play_status != PlayStatus::Stopped && fkey_X == kSPACE)) {
                             preview_pattern_line(pattern, page);
@@ -5693,6 +6047,7 @@ void run_main_screen(HWND hwnd)
         const uint16_t fkey = PATTERN_edit(pattern_patt, pattern_page, pattern_hpos);
         if (fkey == kESC || fkey == kF10 || _force_program_quit) break;
     }
+    cancel_note_recorder();
 
     if (!tracing) {
         if (use_large_cursor) WideCursor();
