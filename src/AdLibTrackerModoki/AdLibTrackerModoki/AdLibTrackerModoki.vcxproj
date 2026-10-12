@@ -170,6 +170,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClInclude Include="ui\MainScreenData.h" />
     <ClInclude Include="ui\StringIO.h" />
     <ClInclude Include="ui\DialogIO.h" />
+    <None Include="ui\InstEdit.inl" />
     <ClInclude Include="core\song\SongData.h" />
     <ClInclude Include="core\song\Song.h" />
     <ClInclude Include="core\song\EffectDefs.h" />
@@ -181,6 +182,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClInclude Include="core\song\ModuleLoader.h" />
     <ClInclude Include="core\song\Pack.h" />
     <ClInclude Include="core\song\ModuleSaver.h" />
+    <ClInclude Include="core\song\InstrumentFile.h" />
     <ClInclude Include="core\song\TrackerLoaders.h" />
     <ClInclude Include="core\player\A2Player.h" />
     <ClInclude Include="core\player\SampleClockDriver.h" />
@@ -219,6 +221,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClCompile Include="core\song\ModuleLoader.cpp" />
     <ClCompile Include="core\song\Pack.cpp" />
     <ClCompile Include="core\song\ModuleSaver.cpp" />
+    <ClCompile Include="core\song\InstrumentFile.cpp" />
     <ClCompile Include="core\song\AmdLoader.cpp" />
     <ClCompile Include="core\song\CffLoader.cpp" />
     <ClCompile Include="core\song\DfmLoader.cpp" />

@@ -48,17 +48,17 @@ namespace
         }
         return str;
     }
+}
 
-    // FILE_open のロード後の処理 (load_flag <> BYTE_NULL)。曲名・作者名・楽器名の使えない文字を置き換える。
-    void filter_names(FixedSongData& songdata)
-    {
-        songdata.songname.assign(FilterStr2(songdata.songname.str(), '_'));
-        songdata.composer.assign(FilterStr2(songdata.composer.str(), '_'));
-        for (int index = 1; index <= 255; ++index) {
-            auto& name = at1(songdata.instr_names, index);
-            name.assign(loader::pcopy(name.str(), 1, 9) +
-                        FilterStr2(loader::pcopy(cstr2str(name.str()), 10, 32), '_'));
-        }
+// FILE_open のロード後の処理 (load_flag <> BYTE_NULL)。曲名・作者名・楽器名の使えない文字を置き換える。
+void filter_loaded_names(FixedSongData& songdata)
+{
+    songdata.songname.assign(FilterStr2(songdata.songname.str(), '_'));
+    songdata.composer.assign(FilterStr2(songdata.composer.str(), '_'));
+    for (int index = 1; index <= 255; ++index) {
+        auto& name = at1(songdata.instr_names, index);
+        name.assign(loader::pcopy(name.str(), 1, 9) +
+                    FilterStr2(loader::pcopy(cstr2str(name.str()), 10, 32), '_'));
     }
 }
 
@@ -108,7 +108,7 @@ bool LoadSongModule(const std::wstring& path, Song& song, const Song::Defaults& 
 
     // load_flag = 1 の処理 (楽器名・パターン名の付け直し) と、使えない文字の置き換え
     loader::normalize_names(song.data());
-    filter_names(song.data());
+    filter_loaded_names(song.data());
     song.title = std::filesystem::path(path).filename().wstring();
     return true;
 }
@@ -116,7 +116,7 @@ bool LoadSongModule(const std::wstring& path, Song& song, const Song::Defaults& 
 bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, bool to_marked, std::wstring& error)
 {
     if (!LoadA2p(path, song, pattern, to_marked, error)) return false;
-    filter_names(song.data());
+    filter_loaded_names(song.data());
     return true;
 }
 

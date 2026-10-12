@@ -135,6 +135,9 @@
     <ClInclude Include="core\song\ModuleSaver.h">
       <Filter>core\song</Filter>
     </ClInclude>
+    <ClInclude Include="core\song\InstrumentFile.h">
+      <Filter>core\song</Filter>
+    </ClInclude>
     <ClInclude Include="core\song\TrackerLoaders.h">
       <Filter>core\song</Filter>
     </ClInclude>
@@ -234,6 +237,9 @@
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\song\ModuleSaver.cpp">
+      <Filter>core\song</Filter>
+    </ClCompile>
+    <ClCompile Include="core\song\InstrumentFile.cpp">
       <Filter>core\song</Filter>
     </ClCompile>
     <ClCompile Include="core\song\AmdLoader.cpp">

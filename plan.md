@@ -4,8 +4,8 @@
 
 ## 現在の状況
 
-- フェーズ6d (パターン一覧とオーダー編集) が完了。
-- 次の作業は 6e (楽器とマクロ)。
+- フェーズ6e-1 (楽器窓) が完了。
+- 次の作業は 6e-2 (楽器エディタ)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -14,6 +14,7 @@
 - 編集機能: 6a で保存処理が本家とバイト単位で一致することを確かめたので、それを使う。
   1. 「この曲を開いて、このキーをこの順に押し、F2 で保存」という手順を用意する。
   2. 本家でその操作をして保存したファイルを `data/` に置く。本家もキー操作を送るスクリプトで自動で操作できる (6d-2 から)。
+     本家はコマンドラインで曲を開けないので、F3 のファイル選択画面で開く (AT2 のフォルダで ".." から始まる)。
      文字の入力は SendKeys ではなく、両方とも同じキー操作 (PostMessage) で送る。
   3. クローン版で同じ操作を自動で再現して保存し、2 つのファイルを 1 バイト単位で比べる。
 - 段階ごとに確認してからコミットする。
@@ -111,6 +112,16 @@
 - Shift+Alt+P (PATTERN_LIST_alt と paste_object_alt)
 - 本家で保存した `data/test6d2.a2m` / `data/test6d2.a2p` とバイト単位で一致することを確認
 
+### フェーズ6e-1: 楽器窓 (Ctrl+I)
+- INSTRUMENT_CONTROL / instr_control_proc を移植: パターン窓 (トレース中を含む) とオーダー窓から開く
+  - 左側に選んだ楽器のパラメータ、右側に 255 個の楽器の一覧、鳴っている楽器の印 (instr_control_ai)
+  - Space によるマーク、Ctrl+W (入れ替え)、Ctrl+C / Shift+Ctrl+C / Ctrl+V / Shift+Ctrl+V / Alt+P / Alt+V、Alt+C のコピーメニュー
+  - Enter による名前の編集、Shift+M/B/S/T/C/H (パーカッション)、Shift+O (4OP の組)、F5〜F9 などの再生操作
+  - MIDI ボードの鍵盤による試聴 (INSTRUMENT_test)
+- 楽器ファイル: F2 で A2I、Shift+F2 で A2F を保存、F3 で A2I / A2F を読み込む (core/song/InstrumentFile)
+- 本家で保存した `data/test6e1.a2i` / `test6e1.a2f` とバイト単位で一致。`test6e1.a2m` は ins_4op_flags の未使用部分
+  (本家は初期化していない作業用の値を書き込む) を除いて一致することを確認
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -121,8 +132,11 @@
 
 ## 今後の計画
 
-### フェーズ6e: 楽器とマクロ (次の作業)
-- Ctrl+I / E / Q / G / M
+### フェーズ6e: 楽器とマクロ
+- 6e-2 (次の作業): 楽器エディタ (Ctrl+E、楽器窓の TAB)
+- 6e-3: マクロエディタ (Ctrl+Q / Ctrl+G、楽器窓の Shift+TAB)
+- 6e-4: A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)
+- 6e-5: BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
 
 ### フェーズ6f: その他の編集機能
 - Ctrl+T (移調)、Ctrl+R (楽器の置き換え)、Ctrl+O (オクターブ設定)

@@ -22,6 +22,7 @@
 #include "../core/player/A2Player.h"
 #include "../core/song/Depack.h"
 #include "../core/song/EffectDefs.h"
+#include "../core/song/InstrumentFile.h"
 #include "../core/song/ModuleLoader.h"
 #include "../core/song/ModuleSaver.h"
 #include "../platform/System.h"
@@ -114,6 +115,7 @@ uint8_t pattern_list__page = 1;
 uint8_t pattern2use = BYTE_NULL;   // 一覧から A2P を保存・読み込むときのパターン (BYTE_NULL なら pattern_patt)
 
 std::wstring songdata_source;   // 読み込んだ (保存した) 曲のパス
+std::wstring instdata_source;   // 読み込んだ (保存した) 楽器ファイルのパス
 
 uint8_t current_octave = 4;
 uint8_t current_inst = 1;
@@ -1518,6 +1520,7 @@ void realtime_gfx_poll_proc()
     status_refresh();
     STATUS_LINE_refresh();
     trace_update_proc();
+    if (mn_environment.ext_proc_rt) mn_environment.ext_proc_rt();
 }
 
 // fade_out_playback (SDL 版)。画面のフェードアウト (vid_FadeOut) は行わない。
@@ -1674,6 +1677,44 @@ void FILE_open(const wchar_t* filter = nullptr)
     if (ok) load_song(buf);
 }
 
+// 楽器窓の F3: 楽器ファイルを current_inst へ読み込む (FILE_open の mpos = 2 の場合)
+void FILE_open_instrument()
+{
+    WCHAR buf[MAX_PATH] = L"";
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hwnd;
+    ofn.lpstrFilter = L"AdLib Tracker II 楽器 (*.a2i;*.a2f)\0*.a2i;*.a2f\0";
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    const bool ok = GetOpenFileNameW(&ofn) != FALSE;
+    keyboard_init();
+    if (!ok) return;
+
+    instdata_source = buf;
+    std::wstring error;
+    bool loaded;
+    {
+        PlayerLock lock;
+        P().nul_volume_bars();
+        loaded = a2ins::LoadInstrumentFile(buf, songdata(), current_inst, error);
+        if (loaded) module_archived = false;
+    }
+    if (!loaded) {
+        MessageBoxW(g_hwnd, error.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
+        keyboard_init();
+    }
+
+    PlayerLock lock;
+    force_scrollbars = true;
+    PATTERN_ORDER_page_refresh(pattord_page);
+    PATTERN_page_refresh(pattern_page);
+    force_scrollbars = false;
+    std::fill(std::begin(P().ai_table), std::end(P().ai_table), uint8_t(0));
+    no_status_refresh = false;
+}
+
 // ---------------------------------------------------------------------------
 // ダイアログ・進捗表示の補助 (txtscrio.pas / adt2unit.pas / adt2extn.pas)
 // ---------------------------------------------------------------------------
@@ -1782,31 +1823,7 @@ uint8_t clearpos = 1;
 // 4OP の楽器の名前の先頭の印を付け直す (instedit.inc の update_4op_flag_marks)
 void update_4op_flag_marks()
 {
-    FixedSongData& sd = songdata();
-    const auto check_4op_flag = [&sd](int ins) {
-        for (int idx = 1; idx <= sd.ins_4op_flags.num_4op && idx <= 128; ++idx) {
-            if (sd.ins_4op_flags.idx_4op[idx - 1] == ins) return true;
-        }
-        return false;
-    };
-    const auto is_flag_chr = [](char c) { return c == '\xAC' || c == '\xAD'; };
-
-    for (int temp = 1; temp <= 254; ++temp) {
-        if (!check_4op_flag(temp)) {
-            auto& n1 = at1(sd.instr_names, temp);
-            auto& n2 = at1(sd.instr_names, temp + 1);
-            if (is_flag_chr(n1.data[0])) n1.data[0] = ' ';
-            if (is_flag_chr(n2.data[0])) n2.data[0] = ' ';
-        }
-    }
-    for (int temp = 1; temp <= 254; ++temp) {
-        if (check_4op_flag(temp)) {
-            auto& n1 = at1(sd.instr_names, temp);
-            auto& n2 = at1(sd.instr_names, temp + 1);
-            if (n1.data[0] == ' ') n1.data[0] = '\xAC';
-            if (n2.data[0] == ' ') n2.data[0] = '\xAD';
-        }
-    }
+    a2ins::update_4op_flag_marks(songdata());
 }
 
 // F4 / Ctrl+A
@@ -1916,6 +1933,12 @@ std::wstring choose_save_path(const wchar_t* ext)
     } else if (std::wcscmp(ext, L"a2t") == 0) {
         filter = L"AdLib Tracker II タイニーモジュール (*.a2t)";
         title = L"A2T 形式で保存";
+    } else if (std::wcscmp(ext, L"a2i") == 0) {
+        filter = L"AdLib Tracker II 楽器 (*.a2i)";
+        title = L"楽器を A2I 形式で保存";
+    } else if (std::wcscmp(ext, L"a2f") == 0) {
+        filter = L"AdLib Tracker II FM マクロ付き楽器 (*.a2f)";
+        title = L"楽器を A2F 形式で保存";
     } else {
         filter = L"AdLib Tracker II パターン (*.a2p)";
         title = L"パターンを A2P 形式で保存";
@@ -1926,10 +1949,13 @@ std::wstring choose_save_path(const wchar_t* ext)
     filter += L'\0';
     filter += L'\0';
 
+    // 楽器ファイルは前回の楽器ファイル、それ以外は曲のファイル名を初期値にする (オリジナルと同じ)
+    const bool is_instrument = std::wcscmp(ext, L"a2i") == 0 || std::wcscmp(ext, L"a2f") == 0;
+    const std::wstring& source = is_instrument ? instdata_source : songdata_source;
     WCHAR buf[MAX_PATH] = L"";
     std::wstring dir;
-    if (!songdata_source.empty()) {
-        const std::filesystem::path p(replace_ext(songdata_source, ext));
+    if (!source.empty()) {
+        const std::filesystem::path p(replace_ext(source, ext));
         wcsncpy_s(buf, p.filename().c_str(), _TRUNCATE);
         dir = p.parent_path().wstring();
     }
@@ -2055,9 +2081,31 @@ void save_song(const std::wstring& path, const wchar_t* ext)
     }
 }
 
+// 楽器ファイル (A2I / A2F) の保存 (_a2i_saver / _a2f_saver)。保存しても曲の保存状態は変わらない
+void save_instrument(const std::wstring& path, const wchar_t* ext)
+{
+    const bool is_a2i = std::wcscmp(ext, L"a2i") == 0;
+    SaveResult result;
+    {
+        PlayerLock lock;
+        result = is_a2i ? a2ins::SaveA2i(path, songdata(), current_inst) : a2ins::SaveA2f(path, songdata(), current_inst);
+    }
+    const std::string saver_title = is_a2i ? " A2i SAVER " : " A2F SAVER ";
+    if (result == SaveResult::WriteError) Dialog("ERROR WRiTiNG DATA - DiSK ERROR?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
+    else if (result == SaveResult::DiskFull) Dialog("ERROR WRiTiNG DATA - DiSK FULL?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
+}
+
 // F2 / Ctrl+F2 / Alt+F2 (quick: Shift+F2 は前回のファイル名でそのまま保存する)
 void FILE_save(const wchar_t* ext, bool quick)
 {
+    if (std::wcscmp(ext, L"a2i") == 0 || std::wcscmp(ext, L"a2f") == 0) {
+        const std::wstring path = choose_save_path(ext);
+        if (path.empty()) return;
+        instdata_source = path;
+        save_instrument(path, ext);
+        return;
+    }
+
     std::wstring path;
     if (quick && std::wcscmp(ext, L"a2p") != 0 && !songdata_source.empty()) {
         path = replace_ext(songdata_source, ext);
@@ -3281,6 +3329,7 @@ void trace_record_notes(uint16_t fkey2)
 }
 
 void PATTERN_LIST(uint8_t page);
+uint8_t INSTRUMENT_CONTROL();
 
 uint16_t PATTERN_trace()
 {
@@ -3354,6 +3403,10 @@ uint16_t PATTERN_trace()
                     PATTERN_LIST(B(old_pattern_patt + 1));
                     old_pattern_patt = B(pattern_list__page - 1);
                 }
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlI) {
+                pause_debugging();
+                INSTRUMENT_CONTROL();
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtENTR) {
                 jump_to_next_order();
@@ -3847,11 +3900,7 @@ constexpr char _ins_mark_chr = '\x10';
 
 bool check_4op_flag(uint8_t ins)
 {
-    const FixedSongData& sd = songdata();
-    for (int idx = 1; idx <= sd.ins_4op_flags.num_4op && idx <= 128; ++idx) {
-        if (sd.ins_4op_flags.idx_4op[idx - 1] == ins) return true;
-    }
-    return false;
+    return a2ins::check_4op_flag(songdata(), ins);
 }
 
 char& instr_name_1st_char(int ins) { return at1(songdata().instr_names, ins).data[0]; }
@@ -4466,7 +4515,7 @@ void next_line(uint8_t& page, bool cond)
     }
 }
 
-// --- クリップボード (typcons1.inc の tCLIPBOARD のうちパターンの部分。楽器などは使う機能とともに追加する) ---
+// --- クリップボード (typcons1.inc の tCLIPBOARD のうちパターンと楽器の部分。マクロは使う機能とともに追加する) ---
 
 enum tCOPY_OBJECT : uint8_t
 {
@@ -4486,10 +4535,30 @@ struct tCLIPBOARD
     uint8_t block_hsize;
     uint8_t block_vsize;
     Chunk pattern[21][256];   // [1..20][0..255]
+    struct
+    {
+        PString<32> names[256];          // [1..255]
+        Instrument data[256];
+        RegisterTable macros[256];
+        MacroTable arpvib[256];
+        DisFmregCol dis_fmreg_col[256];
+    } instrument;
     std::string _string;
 };
 
 tCLIPBOARD clipboard{};
+
+// FillChar(clipboard, SizeOf(clipboard), 0) (大きいので一時オブジェクトを作らずに消す)
+void reset_clipboard()
+{
+    clipboard.object_type = objNone;
+    std::memset(clipboard.pattern_order, 0, sizeof(clipboard.pattern_order));
+    clipboard.block_hsize = 0;
+    clipboard.block_vsize = 0;
+    std::memset(clipboard.pattern, 0, sizeof(clipboard.pattern));
+    std::memset(&clipboard.instrument, 0, sizeof(clipboard.instrument));
+    clipboard._string.clear();
+}
 
 // Alt+C のメニュー (typcons2.inc)
 const char* const copy_menu_str2[15] = {
@@ -4541,7 +4610,7 @@ void copy_object(uint8_t pattern, uint8_t page, uint8_t hpos)
     case objNote: case objInstrumentDef: case objEffect: case objEffect2:
     case objLine: case objTrack: case objPattern: case objMarkedBlock: {
         const tCOPY_OBJECT temp3 = clipboard.object_type;
-        clipboard = tCLIPBOARD{};
+        reset_clipboard();
         clipboard.object_type = temp3;
         break;
     }
@@ -5111,6 +5180,8 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 
     return mn_environment.keystroke != kESC ? pattern_list__page : BYTE_NULL;
 }
+
+#include "InstEdit.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。
@@ -5885,11 +5956,16 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
             }
 
+            case kCtrlI: {
+                PlayerUnlock unlock;
+                INSTRUMENT_CONTROL();
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlO:
             case kCtrlH:
-            case kCtrlI:
             case kCtrlE:
             case kCtrlQ:
             case kCtrlG:
@@ -6848,13 +6924,18 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
+            case kCtrlI: {
+                PlayerUnlock unlock;
+                INSTRUMENT_CONTROL();
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlB:
             case kCtrlO:
             case kCtrlF:
             case kCtrlH:
-            case kCtrlI:
             case kCtrlE:
             case kCtrlQ:
             case kCtrlG:
