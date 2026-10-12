@@ -82,6 +82,13 @@ std::string FilterStr2(std::string str, const tCHARSET& chr0, char chr1)
     return str;
 }
 
+std::string CutStr(std::string str)
+{
+    while (!str.empty() && str.front() == ' ') str.erase(0, 1);
+    while (!str.empty() && str.back() == ' ') str.pop_back();
+    return str;
+}
+
 std::string CutStrR(std::string str, uint8_t margin)
 {
     const int len = static_cast<int>(str.size());

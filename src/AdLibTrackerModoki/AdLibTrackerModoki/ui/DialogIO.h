@@ -2,14 +2,16 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "StringIO.h"
+#include "TxtScrIO.h"
 
-// ダイアログ (dialogio.pas の Dialog の移植)
+// ダイアログとメニュー (dialogio.pas の Dialog / Menu の移植)
 //
 // 文字列は CP437 のバイト列。text / keys は '$' 区切り、keys の '~X~' はショートカットキーを表す
 // ('~' のない項目は選べない)。
-// 文字列入力 ('%string_input%') と Menu / Fselect は、使う機能の実装とともに追加する。
+// 文字列入力 ('%string_input%') と Fselect は、使う機能の実装とともに追加する。
 namespace at2
 {
 
@@ -75,6 +77,81 @@ extern tDIALOG_ENVIRONMENT dl_environment;
 
 // 選ばれた項目の番号 (1 始まり) を返す。押されたキーは dl_environment.keystroke に入る。
 uint8_t Dialog(const std::string& text, const std::string& keys, const std::string& title, uint8_t spos);
+
+// --- メニュー (dialogio.pas の Menu) ---
+
+constexpr uint8_t dialog_topic = 0x0d;
+constexpr uint8_t dialog_hi_topic = 0x0e;
+
+struct tMENU_SETTING
+{
+    std::string frame_type;
+    bool frame_enabled;
+    bool shadow_enabled;
+    bool posbar_enabled;
+    uint8_t title_attr;
+    uint8_t menu_attr;
+    uint8_t text_attr;
+    uint8_t text2_attr;
+    uint8_t default_attr;
+    uint8_t short_attr;
+    uint8_t short2_attr;
+    uint8_t disbld_attr;
+    uint8_t contxt_attr;
+    uint8_t contxt2_attr;
+    uint8_t topic_attr;
+    uint8_t hi_topic_attr;
+    tCHARSET topic_mask_chr;
+    bool center_box;
+    bool cycle_moves;
+    bool edit_contents;
+    bool reverse_use;
+    bool show_scrollbar;
+    uint8_t topic_len;
+    uint8_t fixed_len;
+    int32_t homing_pos;
+    uint16_t terminate_keys[50];   // [1..50]
+};
+
+struct tMENU_ENVIRONMENT
+{
+    tSCREEN_MEM_PTR v_dest;
+    uint16_t keystroke;
+    std::string context;
+    bool unpolite;
+    bool winshade;
+    bool intact_area;
+    uint8_t edit_pos;
+    uint16_t curr_page;
+    uint16_t curr_pos;
+    std::string curr_item;
+    void (*ext_proc)();
+    void (*ext_proc_rt)();
+    void (*refresh)();
+    bool do_refresh;
+    bool own_refresh;
+    bool preview;
+    uint8_t fixed_start;
+    uint8_t descr_len;
+    const std::vector<std::string>* descr;   // 項目の説明 (オリジナルは String[descr_len] の配列へのポインタ)
+    bool is_editing;
+    uint8_t xpos, ypos;
+    uint8_t xsize, ysize;
+    uint8_t desc_pos;
+    uint8_t hlight_chrs;
+};
+
+extern tMENU_SETTING mn_setting;
+extern tMENU_ENVIRONMENT mn_environment;
+
+// 縦のスクロールバー。表示した位置を返す (前回の位置 pos と同じなら描かない)
+uint16_t VScrollBar(tSCREEN_MEM_PTR dest, uint8_t x, uint8_t y, uint8_t size, uint16_t len1, uint16_t len2, uint16_t pos,
+                    uint8_t atr1, uint8_t atr2);
+
+// data[0..count-1] の項目 (各 len 文字まで) を len2 行の窓で選ばせ、選んだ項目の番号 (1 始まり) を返す。
+// 押されたキーは mn_environment.keystroke に入る。edit_contents のときは data を書き換える。
+uint16_t Menu(std::vector<std::string>& data, uint8_t x, uint8_t y, uint16_t spos, uint8_t len, uint8_t len2,
+              uint16_t count, const std::string& title);
 
 // --- 1 行の文字列入力 (stringio.pas の InputStr) ---
 

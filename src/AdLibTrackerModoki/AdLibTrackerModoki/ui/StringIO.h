@@ -21,6 +21,7 @@ extern const tCHARSET HEX_NUM_CHARSET;   // ['0'..'9','a'..'f','A'..'F']
 
 int32_t Str2num(const std::string& str, uint8_t base);
 std::string FilterStr2(std::string str, const tCHARSET& chr0, char chr1);
+std::string CutStr(std::string str);   // 前後の空白を除く
 std::string CutStrR(std::string str, uint8_t margin);
 
 std::string byte2hex(uint8_t value);

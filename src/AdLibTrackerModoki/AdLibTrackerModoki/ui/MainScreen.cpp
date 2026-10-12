@@ -61,10 +61,26 @@ double decay_bar_rise = 3.0;
 double decay_bar_fall = 0.3;
 
 // --- 画面・編集の状態 (adt2unit.pas / adt2sys.pas / typcons1.inc のグローバル変数) ---
-// 編集機能は未実装のため、マーク・ノート記録などの状態は既定値のまま
+// ノート記録は未実装のため、その状態は既定値のまま
 bool tracing = false;
 bool track_notes = false;
 bool marking = false;
+
+// ブロックの選択 (adt2unit.pas / adt2ext2.pas / adt2extn.pas)
+// block_x0..block_y1 は描画のたびに選択の始点とカーソル位置から計算する (is_in_block)
+uint8_t block_xstart = 1;
+uint8_t block_ystart = 0;
+uint8_t block_x0 = 0, block_y0 = 0, block_x1 = 0, block_y1 = 0;
+bool discard_block = false;
+uint8_t quick_mark_type = 0;
+uint8_t old_chan_pos = 1;
+uint8_t old_page = 0;
+uint8_t old_block_chan_pos = 1;
+uint8_t old_block_patt_hpos = 1;
+uint8_t old_block_patt_page = 0;
+uint8_t tracing_block_pattern = 0;
+uint8_t tracing_block_xend = 0;
+uint8_t tracing_block_yend = 0;
 bool mark_lines = false;
 bool jump_mark_mode = false;
 bool no_status_refresh = false;
@@ -906,13 +922,20 @@ void STATUS_LINE_refresh()
                   main_background + main_border, main_background + main_stat_line);
     }
 
-    show_cstr(B(MAX_COLUMNS - 39), ys,
-              "~[LN:~" + ExpStrL(Num2str(pattern_page, 10), 3, '0') + "/" +
-                  ExpStrL(Num2str(songdata().patt_len - 1, 10), 3, '0') + "~;~",
-              main_background + main_hi_stat_line, main_background + main_stat_line);
-    show_cstr(B(MAX_COLUMNS - 27), ys,
-              "~TRK:~" + byte2dec(count_channel(pattern_hpos)) + "/" + byte2dec(songdata().nm_tracks) + "~]~",
-              main_background + main_hi_stat_line, main_background + main_stat_line);
+    if (marking && !(discard_block || (tracing && pattern_patt != tracing_block_pattern))) {
+        show_cstr(B(MAX_COLUMNS - 39), ys,
+                  "~[M.BLOCK:~" + byte2hex(block_y0) + "," + byte2dec(block_x0) + "~\xC4\x10~" +
+                      byte2hex(block_y1) + "," + byte2dec(block_x1) + "~]~",
+                  main_background + main_hi_stat_line, main_background + main_stat_line);
+    } else {
+        show_cstr(B(MAX_COLUMNS - 39), ys,
+                  "~[LN:~" + ExpStrL(Num2str(pattern_page, 10), 3, '0') + "/" +
+                      ExpStrL(Num2str(songdata().patt_len - 1, 10), 3, '0') + "~;~",
+                  main_background + main_hi_stat_line, main_background + main_stat_line);
+        show_cstr(B(MAX_COLUMNS - 27), ys,
+                  "~TRK:~" + byte2dec(count_channel(pattern_hpos)) + "/" + byte2dec(songdata().nm_tracks) + "~]~",
+                  main_background + main_hi_stat_line, main_background + main_stat_line);
+    }
 
     if (midiboard || (p.debugging && ps == isStopped)) show_str(3, ys, "MBOARD", main_background + main_hi_stat_line);
     else show_str(3, ys, "MBOARD", main_background + main_stat_line);
@@ -964,6 +987,26 @@ char fx_digit(uint8_t def)
     return def < 48 ? fx_digits[def] : '?';
 }
 
+// (x0, y0) がブロック内か。選択の始点と (x1, y1) から block_x0..block_y1 を計算する (adt2unit.pas)
+bool is_in_block(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1)
+{
+    block_x1 = x1;
+    block_x0 = block_xstart;
+    if (block_x0 > block_x1) {
+        block_x1 = block_x0;
+        block_x0 = x1;
+    }
+
+    block_y1 = y1;
+    block_y0 = block_ystart;
+    if (block_y0 > block_y1) {
+        block_y1 = block_y0;
+        block_y0 = y1;
+    }
+
+    return x0 >= block_x0 && x0 <= block_x1 && y0 >= block_y0 && y0 <= block_y1;
+}
+
 void PATTERN_page_refresh(uint8_t page)
 {
     A2Player& p = P();
@@ -1006,6 +1049,18 @@ void PATTERN_page_refresh(uint8_t page)
         }
     }
 
+    const bool _no_block_tracing = discard_block || (tracing && pattern_patt != tracing_block_pattern);
+    // ブロックの強調表示をする (カーソル行を通常の行として描く) か
+    const bool show_block = marking && (!_no_block_tracing || discard_block);
+    // ブロックを選択していないものとして描くか
+    const bool no_block = !marking || (marking && !discard_block && _no_block_tracing);
+
+    // 選択範囲 (オリジナルは各セルの is_in_block の副作用で block_x0..block_y1 を更新する)
+    if (marking) {
+        if (!tracing) is_in_block(0, 0, count_channel(pattern_hpos), page);
+        else if (!discard_block && !_no_block_tracing) is_in_block(0, 0, tracing_block_xend, tracing_block_yend);
+    }
+
     show_str(B(17 + (MAX_COLUMNS - 19) / 2), 8, byte2hex(pattern_patt), pattern_bckg + pattern_border);
 
     Chunk chunk = {};
@@ -1027,26 +1082,46 @@ void PATTERN_page_refresh(uint8_t page)
             _row_fgnd = pattern_line_p;
         }
 
-        // 行番号 (マーク中の表示は編集機能とともに実装する)
+        // 行番号
         bool centered;   // カーソル行の形式 (#16 XX #17)
         const bool marked_line = p.mark_line != 0 && (line == 0 || line % p.mark_line == 0);
+        const auto set_row = [&](uint8_t bckg, uint8_t fgnd) {
+            if (_row_bckg == BYTE_NULL) { _row_bckg = bckg; _row_bckg2 = pattern_bckg; _row_fgnd = fgnd; }
+        };
         if (!(p.mark_line != 0 && mark_lines)) {
-            if (temp1 != MID) {
-                if (_row_bckg == BYTE_NULL) { _row_bckg = pattern_bckg; _row_bckg2 = pattern_bckg; _row_fgnd = pattern_line; }
-                centered = false;
+            if (temp1 != MID || show_block) {
+                if (temp1 != MID) {
+                    set_row(pattern_bckg, pattern_line);
+                    centered = false;
+                } else {
+                    set_row(pattern_bckg, pattern_border);
+                    centered = true;
+                }
             } else {
-                if (_row_bckg == BYTE_NULL) { _row_bckg = pattern_row_bckg; _row_bckg2 = pattern_bckg; _row_fgnd = pattern_hi_line; }
+                set_row(pattern_row_bckg, pattern_hi_line);
                 centered = true;
             }
-        } else if (temp1 != MID) {
+        } else if (temp1 != MID || show_block) {
             if (marked_line) {
-                if (_row_bckg == BYTE_NULL) { _row_bckg = pattern_row_bckg; _row_bckg2 = pattern_bckg; _row_fgnd = pattern_hi_line; }
+                if (no_block) {
+                    set_row(pattern_row_bckg, pattern_hi_line);
+                    centered = false;
+                } else if (temp1 != MID) {
+                    set_row(pattern_bckg, pattern_hi_line);
+                    centered = false;
+                } else {
+                    set_row(pattern_bckg, pattern_border);
+                    centered = true;
+                }
+            } else if (temp1 != MID) {
+                set_row(pattern_bckg, pattern_line);
+                centered = false;
             } else {
-                if (_row_bckg == BYTE_NULL) { _row_bckg = pattern_bckg; _row_bckg2 = pattern_bckg; _row_fgnd = pattern_line; }
+                set_row(pattern_bckg, pattern_border);
+                centered = true;
             }
-            centered = false;
         } else {
-            if (_row_bckg == BYTE_NULL) { _row_bckg = pattern_row_bckg_m; _row_bckg2 = pattern_bckg; _row_fgnd = pattern_hi_line_m; }
+            set_row(pattern_row_bckg_m, pattern_hi_line_m);
             centered = true;
         }
 
@@ -1065,7 +1140,18 @@ void PATTERN_page_refresh(uint8_t page)
             uint16_t attr;
             uint8_t attr2 = 0, attr3;
 
-            if (temp1 == MID) {
+            const bool in_block =
+                marking && ((!tracing && is_in_block(B(temp2), line, count_channel(pattern_hpos), page)) ||
+                            (!discard_block && tracing && !_no_block_tracing &&
+                             is_in_block(B(temp2), line, tracing_block_xend, tracing_block_yend)) ||
+                            (discard_block && temp2 == block_xstart && line == block_ystart));
+
+            if (in_block) {
+                attr = fx1 ? pattern_block_bckg + pattern_cmnd_b : pattern_block_bckg + pattern_cmnd0_b;
+                attr3 = fx2 ? pattern_block_bckg + pattern_cmnd_b : pattern_block_bckg + pattern_cmnd0_b;
+                _set_attr(chunk, pattern_block_bckg, pattern_fix_note_b, pattern_note_b, pattern_note0_b,
+                          pattern_inst_b, pattern_inst0_b, attr, attr2);
+            } else if (no_block && temp1 == MID) {
                 if (!(p.mark_line != 0 && mark_lines)) {
                     attr = fx1 ? pattern_row_bckg + pattern_hi_cmnd : pattern_row_bckg + pattern_hi_cmnd0;
                     attr3 = fx2 ? pattern_row_bckg + pattern_hi_cmnd : pattern_row_bckg + pattern_hi_cmnd0;
@@ -1077,7 +1163,7 @@ void PATTERN_page_refresh(uint8_t page)
                     _set_attr(chunk, pattern_row_bckg_m, pattern_fix_note_m, pattern_note_m, pattern_note0_m,
                               pattern_inst_m, pattern_inst0_m, attr, attr2);
                 }
-            } else if (marked_line && mark_lines) {
+            } else if (marked_line && no_block && mark_lines) {
                 attr = fx1 ? pattern_row_bckg + pattern_hi_cmnd : pattern_row_bckg + pattern_hi_cmnd0;
                 attr3 = fx2 ? pattern_row_bckg + pattern_hi_cmnd : pattern_row_bckg + pattern_hi_cmnd0;
                 _set_attr(chunk, pattern_row_bckg, pattern_hi_fx_note, pattern_hi_note, pattern_hi_note0,
@@ -1101,7 +1187,15 @@ void PATTERN_page_refresh(uint8_t page)
 
             const int k = temp2 - (chan_pos - 1);
             uint8_t dummy_atr = B((attr3 & 0xf0) + pattern_border);
-            dummy_str = k != MAX_TRACKS ? "\xB3" : "";
+            if (k != MAX_TRACKS && (!(marking && temp2 >= block_x1) || (marking && _no_block_tracing))) {
+                dummy_str = "\xB3";
+                if (marking && discard_block) dummy_atr = pattern_bckg + pattern_border;
+            } else if (marking && k != MAX_TRACKS && !_no_block_tracing) {
+                dummy_str = "\xB3";
+                dummy_atr = pattern_bckg + pattern_border;
+            } else {
+                dummy_str = "";
+            }
 
             const uint8_t note_attr = B(attr >> 8);
             const uint8_t cmnd_attr = B(attr & 0xff);
@@ -3014,6 +3108,12 @@ uint16_t PATTERN_trace()
     bool nope = false;
     tracing = true;
 
+    if (marking) {
+        tracing_block_pattern = pattern_patt;
+        tracing_block_xend = count_channel(pattern_hpos);
+        tracing_block_yend = pattern_page;
+    }
+
     uint16_t fkey2 = WORD_NULL;
     for (;;) {
         nope = false;
@@ -3390,11 +3490,6 @@ uint8_t nm_track_chan = 1;
 uint8_t old_nm_track_chan = 0;
 uint8_t old_track_chan_start = 0;
 
-// ブロックの選択 (ブロック操作は未実装。PATTERN_position_preview が使う)
-uint8_t block_xstart = 1;
-uint8_t block_ystart = 0;
-bool discard_block = false;
-
 inline uint8_t LO(uint16_t value) { return static_cast<uint8_t>(value & 0xff); }
 inline uint8_t HI(uint16_t value) { return static_cast<uint8_t>(value >> 8); }
 inline char UpCase(char c) { return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c; }
@@ -3687,9 +3782,10 @@ uint8_t FX(char chr)
 
 // 位置を指して確認するときの画面 (ipattern.inc の PATTERN_position_preview)
 // mode 0: 位置を保存、1: 指定位置を表示、BYTE_NULL: 保存した位置に戻す
+// (old_chan_pos はブロックの選択 (Alt+B など) と共用のグローバル変数。オリジナルどおり)
 void PATTERN_position_preview(uint8_t pattern, uint8_t line, uint8_t channel, uint8_t mode)
 {
-    static uint8_t old_pattern_patt, old_pattern_page, old_pattern_hpos, old_chan_pos;
+    static uint8_t old_pattern_patt, old_pattern_page, old_pattern_hpos;
     static uint8_t old_block_xstart, old_block_ystart;
     static bool old_marking;
 
@@ -4021,6 +4117,43 @@ bool is_navigation_key(uint16_t fkey)
     return false;
 }
 
+// ブロックを選択中に Shift なしで押しても選択を解除しないキー
+bool is_block_key(uint16_t fkey)
+{
+    switch (fkey) {
+    case kAltC: case kCtrlN: case kCtrlB: case kCtrlD: case kCtrlC: case kCtrlV:
+    case kCtrlX: case kCtPgUP: case kCtrlM: case kCtPgDN: case kCtrlT: case kCtrlR:
+    case kCtrlH: case kAltQ: case kCtrlZ: case kAltM: case kAltL:
+    case kF5: case kAltF5: case kF6: case kAltF6: case kF7: case kF8: case kAltF8: case kCtrlF8:
+    case kF9: case kAltF9: case kCtrlF9: case kCtLEFT: case kCtRGHT: case kCtENTR:
+    case kAltB: case kAltV: case kCHmins: case kNPplus: case kNPmins:
+        return true;
+    }
+    return false;
+}
+
+// Shift を押しながらでブロックを選択するキー
+bool is_shift_select_key(uint16_t fkey)
+{
+    switch (fkey) {
+    case kLEFT: case kRIGHT: case kUP: case kDOWN: case kPgUP: case kPgDOWN: case kNPPgUP: case kNPPgDN:
+    case kHOME: case kEND: case kNPHOME: case kNPEND:
+        return true;
+    }
+    return false;
+}
+
+// ブロックを選択中に Shift を押しながら押しても選択を解除しないキー
+bool is_shift_block_key(uint16_t fkey)
+{
+    switch (fkey) {
+    case kAltF5: case kShF5: case kAltF6: case kShF6: case kAltF8: case kShF8: case kCtrlF8:
+    case kAltF9: case kShF9: case kCtrlF9: case kCtLEFT: case kCtRGHT: case kCHplus:
+        return true;
+    }
+    return false;
+}
+
 // 次の行へ (Pascal の「If page < PRED(patt_len) then If cond then Inc(page) else else If cycle_pattern then page := 0」)
 void next_line(uint8_t& page, bool cond)
 {
@@ -4029,6 +4162,309 @@ void next_line(uint8_t& page, bool cond)
     } else if (cycle_pattern) {
         page = 0;
     }
+}
+
+// --- クリップボード (typcons1.inc の tCLIPBOARD のうちパターンの部分。楽器などは使う機能とともに追加する) ---
+
+enum tCOPY_OBJECT : uint8_t
+{
+    objNone,
+    objPatternDef, objPatternTable,
+    objInstrument, objInstrumentBank,
+    objNote, objInstrumentDef, objEffect, objEffect2,
+    objLine, objTrack, objPattern, objMarkedBlock,
+    objMacroTableLine, objMacroTableColumn, objMacroTable,
+    objInstrumentWithMacros,
+};
+
+struct tCLIPBOARD
+{
+    tCOPY_OBJECT object_type;
+    uint8_t block_hsize;
+    uint8_t block_vsize;
+    Chunk pattern[21][256];   // [1..20][0..255]
+    std::string _string;
+};
+
+tCLIPBOARD clipboard{};
+
+// Alt+C のメニュー (typcons2.inc)
+const char* const copy_menu_str2[15] = {
+    " COPY ORDER DEF.",
+    " COPY ORDER TABLE",
+    " COPY iNSTRUMENT",
+    " COPY iNSTRUMENT BANK",
+    " COPY ~N~OTE",
+    " COPY iN~S~TRUMENT DEF.",
+    " COPY ~1~ST EFFECT",
+    " COPY ~2~ND EFFECT",
+    " COPY ~L~iNE",
+    " COPY ~T~RACK",
+    " COPY ~P~ATTERN",
+    "",
+    " COPY MACRO-TABLE LiNE",
+    " COPY MACRO-TABLE COLUMN",
+    " COPY MACRO-TABLE",
+};
+
+const char* const copy_marked_str[2] = {
+    " COPY MARKED BLOCK",
+    " COPY MARKED BLOC~K~",
+};
+
+uint8_t copypos2 = 1;
+
+// カーソル位置の欄 (0: ノート、1: 楽器、2: エフェクト 1、3: エフェクト 2)
+int cursor_field(uint8_t hpos)
+{
+    const uint8_t cp = count_pos(hpos);
+    if (command_typing == 0) return cp;
+    if (cp <= 1) return 0;
+    if (cp <= 3) return 1;
+    if (cp <= 6) return 2;
+    return 3;
+}
+
+// PATTERN_edit 内の copy_object
+void copy_object(uint8_t pattern, uint8_t page, uint8_t hpos)
+{
+    const uint8_t chan = count_channel(hpos);
+    const FixedSongData& sd = songdata();
+    Chunk chunk{};
+
+    switch (clipboard.object_type) {
+    case objPatternDef: case objPatternTable:
+    case objInstrument: case objInstrumentBank:
+    case objNote: case objInstrumentDef: case objEffect: case objEffect2:
+    case objLine: case objTrack: case objPattern: case objMarkedBlock: {
+        const tCOPY_OBJECT temp3 = clipboard.object_type;
+        clipboard = tCLIPBOARD{};
+        clipboard.object_type = temp3;
+        break;
+    }
+    default:
+        break;
+    }
+
+    switch (clipboard.object_type) {
+    case objNote:
+    case objInstrumentDef:
+    case objEffect:
+    case objEffect2:
+        get_chunk(pattern, page, chan, chunk);
+        clipboard.pattern[1][0] = chunk;
+        break;
+
+    case objLine:
+        for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1) {
+            get_chunk(pattern, page, B(temp1), chunk);
+            clipboard.pattern[temp1][0] = chunk;
+        }
+        break;
+
+    case objTrack:
+        for (int temp1 = 0; temp1 <= sd.patt_len - 1; ++temp1) {
+            get_chunk(pattern, B(temp1), chan, chunk);
+            clipboard.pattern[1][temp1] = chunk;
+        }
+        break;
+
+    case objPattern:
+        for (int temp2 = 0; temp2 <= sd.patt_len - 1; ++temp2) {
+            for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1) {
+                get_chunk(pattern, B(temp2), B(temp1), chunk);
+                clipboard.pattern[temp1][temp2] = chunk;
+            }
+        }
+        clipboard._string = Copy(sd.pattern_names[pattern].str(), 9, 33);
+        break;
+
+    case objMarkedBlock:
+        clipboard.block_hsize = B(block_x1 - block_x0);
+        clipboard.block_vsize = B(block_y1 - block_y0);
+        for (int temp2 = block_y0; temp2 <= block_y1; ++temp2) {
+            for (int temp1 = block_x0; temp1 <= block_x1; ++temp1) {
+                get_chunk(pattern, B(temp2), B(temp1), chunk);
+                clipboard.pattern[temp1 - block_x0 + 1][temp2 - block_y0] = chunk;
+            }
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+// PATTERN_edit 内の paste_object (Ctrl+V / Alt+P)
+void paste_object(uint8_t pattern, uint8_t& page, uint8_t hpos)
+{
+    _save_pattern_to_undo();
+    const uint8_t chan = count_channel(hpos);
+    FixedSongData& sd = songdata();
+    Chunk chunk{};
+
+    switch (clipboard.object_type) {
+    case objNote:
+    case objInstrumentDef:
+    case objEffect:
+    case objEffect2: {
+        get_chunk(pattern, page, chan, chunk);
+        const Chunk& src = clipboard.pattern[1][0];
+        switch (clipboard.object_type) {
+        case objNote:
+            chunk.note = src.note;
+            break;
+        case objInstrumentDef:
+            chunk.instr_def = src.instr_def;
+            break;
+        case objEffect:
+            chunk.effect_def = src.effect_def;
+            chunk.effect = src.effect;
+            break;
+        default:
+            chunk.effect_def2 = src.effect_def2;
+            chunk.effect2 = src.effect2;
+            break;
+        }
+        put_chunk(pattern, page, chan, chunk);
+        if (linefeed) next_line(page, linefeed);
+        break;
+    }
+
+    case objLine:
+        for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1) put_chunk(pattern, page, B(temp1), clipboard.pattern[temp1][0]);
+        if (linefeed) next_line(page, linefeed);
+        break;
+
+    case objTrack:
+        for (int temp1 = 0; temp1 <= sd.patt_len - 1; ++temp1) put_chunk(pattern, B(temp1), chan, clipboard.pattern[1][temp1]);
+        break;
+
+    case objPattern: {
+        for (int temp2 = 0; temp2 <= sd.patt_len - 1; ++temp2) {
+            for (int temp1 = 1; temp1 <= sd.nm_tracks; ++temp1)
+                put_chunk(pattern, B(temp2), B(temp1), clipboard.pattern[temp1][temp2]);
+        }
+        auto& name = sd.pattern_names[pattern];
+        name.assign(Copy(name.str(), 1, 8) + clipboard._string);
+        break;
+    }
+
+    case objMarkedBlock:
+        for (int temp2 = page; temp2 <= page + clipboard.block_vsize; ++temp2) {
+            for (int temp1 = chan; temp1 <= chan + clipboard.block_hsize; ++temp1) {
+                if (!(temp1 <= sd.nm_tracks && temp2 <= sd.patt_len - 1)) continue;
+                const Chunk& src = clipboard.pattern[temp1 - chan + 1][temp2 - page];
+                if (!shift_pressed()) {
+                    put_chunk(pattern, B(temp2), B(temp1), src);
+                    continue;
+                }
+                // Shift を押しているときはカーソル位置の欄だけ
+                get_chunk(pattern, B(temp2), B(temp1), chunk);
+                switch (cursor_field(hpos)) {
+                case 0:
+                    chunk.note = src.note;
+                    break;
+                case 1:
+                    chunk.instr_def = src.instr_def;
+                    break;
+                case 2:
+                    chunk.effect_def = src.effect_def;
+                    chunk.effect = src.effect;
+                    break;
+                case 3:
+                    chunk.effect_def2 = src.effect_def2;
+                    chunk.effect2 = src.effect2;
+                    break;
+                }
+                put_chunk(pattern, B(temp2), B(temp1), chunk);
+            }
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
+// ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
+// update_values が FALSE なら確かめるだけ。
+bool update_block_volume(uint8_t pattern, const std::vector<uint8_t>& volume_commands, int shift,
+                         bool& fx_found_flag, bool update_values)
+{
+    _save_pattern_to_undo();
+    fx_found_flag = false;
+    const auto is_volume = [&](uint8_t def) {
+        return std::find(volume_commands.begin(), volume_commands.end(), def) != volume_commands.end();
+    };
+    Chunk chunk{};
+    for (int temp2 = block_y0; temp2 <= block_y1; ++temp2) {
+        for (int temp1 = block_x0; temp1 <= block_x1; ++temp1) {
+            get_chunk(pattern, B(temp2), B(temp1), chunk);
+            if (is_volume(chunk.effect_def)) {
+                fx_found_flag = true;
+                if (shift >= 0 ? chunk.effect + shift > 63 : chunk.effect + shift < 0) return false;
+                chunk.effect = B(chunk.effect + shift);
+            }
+            if (is_volume(chunk.effect_def2)) {
+                fx_found_flag = true;
+                if (shift >= 0 ? chunk.effect2 + shift > 63 : chunk.effect2 + shift < 0) return false;
+                chunk.effect2 = B(chunk.effect2 + shift);
+            }
+            if (update_values) put_chunk(pattern, B(temp2), B(temp1), chunk);
+        }
+    }
+    return fx_found_flag;
+}
+
+// テンキーの + / - (ブロックを選択中): 音量のエフェクトを種類の優先順に探して 1 つの種類だけ変える
+void change_block_volume(uint8_t pattern, int shift)
+{
+    static const std::vector<uint8_t> kinds[4] = {
+        { ef_SetInsVolume, ef_ForceInsVolume }, { ef_SetModulatorVol }, { ef_SetCarrierVol }, { ef_SetGlobalVolume },
+    };
+    bool flag2 = false;
+    for (int i = 0; i < 4; ++i) {
+        if (i > 0 && flag2) break;
+        if (update_block_volume(pattern, kinds[i], shift, flag2, false)) {
+            update_block_volume(pattern, kinds[i], shift, flag2, true);
+            break;
+        }
+    }
+    PATTERN_page_refresh(pattern_page);
+}
+
+// ブロックの各トラックで、block_y0 の行から (ブロックの行数だけ) 行を削除 (up) / 挿入 (down) する
+void shift_block_lines(uint8_t pattern, bool up)
+{
+    const int last_line = songdata().patt_len - 1;
+    Chunk chunk{};
+    for (int temp2 = block_x0; temp2 <= block_x1; ++temp2) {
+        for (int temp1 = block_y0; temp1 <= block_y1; ++temp1) {
+            if (up) {
+                for (int temp3 = block_y0; temp3 <= last_line - 1; ++temp3) {
+                    get_chunk(pattern, B(temp3 + 1), B(temp2), chunk);
+                    put_chunk(pattern, B(temp3), B(temp2), chunk);
+                }
+                put_chunk(pattern, B(last_line), B(temp2), Chunk{});
+            } else {
+                for (int temp3 = last_line - 1; temp3 >= block_y0; --temp3) {
+                    get_chunk(pattern, B(temp3), B(temp2), chunk);
+                    put_chunk(pattern, B(temp3 + 1), B(temp2), chunk);
+                }
+                put_chunk(pattern, block_y0, B(temp2), Chunk{});
+            }
+        }
+    }
+}
+
+// ブロックの選択を解除する (位置は Alt+B で選択し直すときのために覚えておく)
+void unmark_block(uint8_t page, uint8_t hpos)
+{
+    old_block_chan_pos = chan_pos;
+    old_block_patt_hpos = hpos;
+    old_block_patt_page = page;
+    marking = false;
 }
 
 // 戻り値は終了の原因となったキー (kESC / kF10)
@@ -4108,7 +4544,31 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             Chunk chunk{};
             Chunk chunk2{};
 
-            // Shift+カーソルキーでのブロックの選択は未実装
+            // --- ブロックの選択の開始・解除 ---
+            if (fkey != kAltQ) quick_mark_type = 0;
+            if ((!shift_pressed() && !(marking && is_block_key(fkey))) ||
+                (shift_pressed() && !(is_shift_select_key(fkey) || (marking && is_shift_block_key(fkey)) || fkey == kCtENTR))) {
+                // ブロックを選択中なら解除する (キーは捨てる)
+                if (marking && !((fkey == kENTER && shift_pressed()) || fkey == kF1)) {
+                    old_block_chan_pos = chan_pos;
+                    old_block_patt_hpos = hpos;
+                    old_block_patt_page = page;
+                    marking = false;
+                    fkey = WORD_NULL;
+                    PATTERN_ORDER_page_refresh(pattord_page);
+                    PATTERN_page_refresh(page);
+                }
+            } else if (!marking && !track_notes && fkey != kPgUP && fkey != kPgDOWN && fkey != kNPPgUP && fkey != kNPPgDN &&
+                       fkey != kHOME && fkey != kEND && fkey != kNPHOME && fkey != kNPEND) {
+                // Shift+カーソルキーで選択を始める (このキーではカーソルは動かない)
+                old_chan_pos = chan_pos;
+                old_page = page;
+                marking = true;
+                cancel_note_recorder();
+                fkey = WORD_NULL;
+                block_xstart = chan;
+                block_ystart = page;
+            }
 
             switch (fkey) {
             case kCHlbrk:
@@ -4199,6 +4659,8 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             case kNPplus:
                 if (!marking) {
                     if (pattern < 127) ++pattern;
+                } else {
+                    change_block_volume(pattern, +1);
                 }
                 break;
 
@@ -4206,6 +4668,8 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             case kNPmins:
                 if (!marking) {
                     if (pattern > 0) --pattern;
+                } else {
+                    change_block_volume(pattern, -1);
                 }
                 break;
 
@@ -4439,16 +4903,186 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             }
 
             case kAltB:
+                if (marking) {
+                    // オリジナルの old_hpos はこの周回の hpos (PATTERN_edit のローカル変数) なので hpos は変わらない
+                    unmark_block(page, hpos);
+                    chan_pos = old_chan_pos;
+                    page = old_page;
+                } else {
+                    // 前回の選択に戻す
+                    old_chan_pos = chan_pos;
+                    old_page = page;
+                    hpos = old_block_patt_hpos;
+                    page = old_block_patt_page;
+                    chan_pos = old_block_chan_pos;
+                    marking = true;
+                    cancel_note_recorder();
+                }
+                break;
+
             case kAltQ:
+                if (track_notes) {
+                    // ノートレコーダーで前回のトラックの範囲に戻す (ノートレコーダーとともに実装する)
+                } else {
+                    switch (quick_mark_type) {
+                    case 0:   // トラック全体
+                        old_chan_pos = chan_pos;
+                        old_page = page;
+                        page = 0;
+                        marking = true;
+                        cancel_note_recorder();
+                        block_xstart = chan;
+                        block_ystart = B(last_line);
+                        quick_mark_type = 1;
+                        break;
+                    case 1:   // パターン全体
+                        marking = true;
+                        cancel_note_recorder();
+                        chan_pos = 1;
+                        hpos = 1;
+                        page = 0;
+                        block_xstart = sd.nm_tracks;
+                        block_ystart = B(last_line);
+                        quick_mark_type = 2;
+                        break;
+                    case 2:   // 解除 (hpos は Alt+B と同じく変わらない)
+                        unmark_block(page, hpos);
+                        chan_pos = old_chan_pos;
+                        page = old_page;
+                        quick_mark_type = 0;
+                        break;
+                    }
+                }
+                break;
+
             case kCtrlK:
+                if (track_notes) {
+                    // ノートレコーダー (未実装)
+                } else {
+                    get_chunk(pattern, pattern_page, chan, chunk);
+                    chunk.note = BYTE_NULL;
+                    chunk.instr_def = 0;
+                    put_chunk(pattern, pattern_page, chan, chunk);
+                    next_line(page, linefeed);
+                }
+                break;
+
             case kCtrlC:
+                if (marking) {
+                    clipboard.object_type = objMarkedBlock;
+                } else {
+                    static const tCOPY_OBJECT field_object[4] = { objNote, objInstrumentDef, objEffect, objEffect2 };
+                    clipboard.object_type = field_object[cursor_field(hpos)];
+                }
+                unmark_block(page, hpos);
+                copy_object(pattern, page, hpos);
+                break;
+
             case kAltP:
+                if (shift_pressed()) {
+                    // 選んだパターンへの貼り付け (PATTERN_LIST_alt。パターン一覧とともに実装する)
+                } else {
+                    paste_object(pattern, page, hpos);
+                }
+                break;
+
             case kCtrlV:
+                paste_object(pattern, page, hpos);
+                break;
+
             case kAltV:
+                if (clipboard.object_type == objMarkedBlock) {
+                    _save_pattern_to_undo();
+                    // 範囲は確かめない (トラック数・パターンの長さを超えた所にも書き込む。オリジナルどおり)
+                    for (int temp2 = page; temp2 <= page + clipboard.block_vsize; ++temp2) {
+                        for (int temp1 = chan; temp1 <= chan + clipboard.block_hsize; ++temp1) {
+                            if (!shift_pressed()) {
+                                // 空いている欄にだけ貼り付ける
+                                const Chunk& src = clipboard.pattern[temp1 - chan + 1][temp2 - page];
+                                get_chunk(pattern, B(temp2), B(temp1), chunk);
+                                if (chunk.note == 0) {
+                                    chunk.note = src.note;
+                                    chunk.instr_def = src.instr_def;
+                                }
+                                if (chunk.effect_def == 0) chunk.effect_def = src.effect_def;
+                                if (chunk.effect == 0) chunk.effect = src.effect;
+                                if (chunk.effect_def2 == 0) chunk.effect_def2 = src.effect_def2;
+                                if (chunk.effect2 == 0) chunk.effect2 = src.effect2;
+                                put_chunk(pattern, B(temp2), B(temp1), chunk);
+                            } else {
+                                // 上下を反転して貼り付ける
+                                put_chunk(pattern, B(temp2), B(temp1),
+                                          clipboard.pattern[temp1 - chan + 1][clipboard.block_vsize - (temp2 - page)]);
+                            }
+                        }
+                    }
+                }
+                break;
+
             case kCtrlX:
+                if (!marking) {
+                    // トラックの並べ替え (REARRANGE) は未実装
+                } else {
+                    _save_pattern_to_undo();
+                    clipboard.object_type = objMarkedBlock;
+                    clipboard.block_hsize = B(block_x1 - block_x0);
+                    clipboard.block_vsize = B(block_y1 - block_y0);
+                    for (int temp2 = block_y0; temp2 <= block_y1; ++temp2) {
+                        for (int temp1 = block_x0; temp1 <= block_x1; ++temp1) {
+                            get_chunk(pattern, B(temp2), B(temp1), chunk);
+                            clipboard.pattern[temp1 - block_x0 + 1][temp2 - block_y0] = chunk;
+                        }
+                    }
+                    unmark_block(page, hpos);
+                    shift_block_lines(pattern, true);
+                }
+                break;
+
             case kCtrlN:
-            case kAltC:
+                if (marking) {
+                    _save_pattern_to_undo();
+                    unmark_block(page, hpos);
+                    for (int temp2 = block_y0; temp2 <= block_y1; ++temp2) {
+                        for (int temp1 = block_x0; temp1 <= block_x1; ++temp1) put_chunk(pattern, B(temp2), B(temp1), Chunk{});
+                    }
+                }
+                break;
+
+            case kAltC: {
+                mn_setting.cycle_moves = true;
+                std::vector<std::string> items(std::begin(copy_menu_str2), std::end(copy_menu_str2));
+                items[11] = copy_marked_str[marking ? 1 : 0];
+                uint16_t temp1;
+                {
+                    PlayerUnlock unlock;
+                    temp1 = Menu(items, 1, 1, copypos2, 30, 15, 15, " COPY OBJECT ");
+                }
+                if (mn_environment.keystroke != kESC) {
+                    copypos2 = B(temp1);
+                    if (marking && temp1 == objMarkedBlock) {
+                        clipboard.object_type = objMarkedBlock;
+                    } else if (temp1 != objMarkedBlock) {
+                        clipboard.object_type = static_cast<tCOPY_OBJECT>(temp1);
+                    } else {
+                        // オリジナルはこの周回の残りを飛ばす (選べない項目なので通らない)
+                        break;
+                    }
+                    unmark_block(page, hpos);
+                    copy_object(pattern, page, hpos);
+                }
+                break;
+            }
+
             case kCtrlB:
+                if (!marking) {
+                    // メッセージボード (MESSAGE_BOARD) は未実装
+                } else {
+                    _save_pattern_to_undo();
+                    unmark_block(page, hpos);
+                    shift_block_lines(pattern, false);
+                }
+                break;
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlO:
@@ -4465,7 +5099,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             case kAltF6:
             case kCtrlF8:
             case kCtrlF9:
-                // ブロック操作・ノートレコーダー・各種画面 (未実装)
+                // ノートレコーダー・各種画面 (未実装)
                 break;
 
             case kBkSPC:
@@ -4536,9 +5170,14 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
             case kCtPgUP:
             case kCtPgDN:
                 _save_pattern_to_undo();
-                // ブロックを選択しているときはブロック (ブロックの選択は未実装)
-                transpose_custom_area(fkey == kCtPgUP ? TransposeType::Up : TransposeType::Down, TransposeType::AllIns,
-                                      pattern, pattern, chan, chan, page, page, 1);
+                // ブロックを選択しているときはブロック
+                if (marking) {
+                    transpose_custom_area(fkey == kCtPgUP ? TransposeType::Up : TransposeType::Down, TransposeType::AllIns,
+                                          pattern, pattern, block_x0, block_x1, block_y0, block_y1, 1);
+                } else {
+                    transpose_custom_area(fkey == kCtPgUP ? TransposeType::Up : TransposeType::Down, TransposeType::AllIns,
+                                          pattern, pattern, chan, chan, page, page, 1);
+                }
                 break;
 
             case kCtrlZ:
@@ -4555,6 +5194,10 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                         tracing = false;
                         if (run_trace()) return kF10;
                     }
+                } else {
+                    _save_pattern_to_undo();
+                    unmark_block(page, hpos);
+                    shift_block_lines(pattern, true);
                 }
                 break;
 
@@ -4649,13 +5292,22 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 if (!shift_pressed()) {
                     nope = true;
                 } else {
-                    // 固定ノートの切り替え (ブロックを選択しているときはブロック。ブロックの選択は未実装)
+                    // 固定ノートの切り替え (ブロックを選択しているときはブロック)
                     _save_pattern_to_undo();
-                    get_chunk(pattern, page, chan, chunk);
-                    if (chunk.note >= 1 && chunk.note <= 12 * 8 + 1) chunk.note = B(chunk.note + fixed_note_flag);
-                    else if (chunk.note >= fixed_note_flag + 1 && chunk.note <= fixed_note_flag + 12 * 8 + 1)
-                        chunk.note = B(chunk.note - fixed_note_flag);
-                    put_chunk(pattern, page, chan, chunk);
+                    const auto toggle_fixed = [&](uint8_t line, uint8_t ch) {
+                        get_chunk(pattern, line, ch, chunk);
+                        if (chunk.note >= 1 && chunk.note <= 12 * 8 + 1) chunk.note = B(chunk.note + fixed_note_flag);
+                        else if (chunk.note >= fixed_note_flag + 1 && chunk.note <= fixed_note_flag + 12 * 8 + 1)
+                            chunk.note = B(chunk.note - fixed_note_flag);
+                        put_chunk(pattern, line, ch, chunk);
+                    };
+                    if (marking) {
+                        for (int temp2 = block_x0; temp2 <= block_x1; ++temp2) {
+                            for (int temp1 = block_y0; temp1 <= block_y1; ++temp1) toggle_fixed(B(temp1), B(temp2));
+                        }
+                    } else {
+                        toggle_fixed(page, chan);
+                    }
                 }
                 break;
 
