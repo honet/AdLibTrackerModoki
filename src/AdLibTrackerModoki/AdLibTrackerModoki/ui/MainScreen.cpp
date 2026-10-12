@@ -3330,6 +3330,8 @@ void trace_record_notes(uint16_t fkey2)
 
 void PATTERN_LIST(uint8_t page);
 uint8_t INSTRUMENT_CONTROL();
+void INSTRUMENT_CONTROL_edit();
+void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
 
 uint16_t PATTERN_trace()
 {
@@ -3407,6 +3409,14 @@ uint16_t PATTERN_trace()
             } else if (fkey2 == kCtrlI) {
                 pause_debugging();
                 INSTRUMENT_CONTROL();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlE) {
+                pause_debugging();
+                INSTRUMENT_CONTROL_edit();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlQ || fkey2 == kCtrlG) {
+                pause_debugging();
+                MACRO_EDITOR(current_inst, fkey2 == kCtrlG);
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtENTR) {
                 jump_to_next_order();
@@ -4515,7 +4525,7 @@ void next_line(uint8_t& page, bool cond)
     }
 }
 
-// --- クリップボード (typcons1.inc の tCLIPBOARD のうちパターンと楽器の部分。マクロは使う機能とともに追加する) ---
+// --- クリップボード (typcons1.inc の tCLIPBOARD) ---
 
 enum tCOPY_OBJECT : uint8_t
 {
@@ -4527,6 +4537,8 @@ enum tCOPY_OBJECT : uint8_t
     objMacroTableLine, objMacroTableColumn, objMacroTable,
     objInstrumentWithMacros,
 };
+
+enum tMACRO_TABLE_TYPE : uint8_t { mttFM_reg_table, mttArpeggio_table, mttVibrato_table };
 
 struct tCLIPBOARD
 {
@@ -4543,6 +4555,10 @@ struct tCLIPBOARD
         MacroTable arpvib[256];
         DisFmregCol dis_fmreg_col[256];
     } instrument;
+    tMACRO_TABLE_TYPE mcrtab_type;
+    RegisterTable fmreg_table;
+    MacroTable macro_table;
+    uint8_t fmtab_def_typ;
     std::string _string;
 };
 
@@ -4557,6 +4573,10 @@ void reset_clipboard()
     clipboard.block_vsize = 0;
     std::memset(clipboard.pattern, 0, sizeof(clipboard.pattern));
     std::memset(&clipboard.instrument, 0, sizeof(clipboard.instrument));
+    clipboard.mcrtab_type = mttFM_reg_table;
+    std::memset(&clipboard.fmreg_table, 0, sizeof(clipboard.fmreg_table));
+    std::memset(&clipboard.macro_table, 0, sizeof(clipboard.macro_table));
+    clipboard.fmtab_def_typ = 0;
     clipboard._string.clear();
 }
 
@@ -5182,6 +5202,7 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 }
 
 #include "InstEdit.inl"
+#include "MacroEdit.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。
@@ -5962,13 +5983,23 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
             }
 
+            case kCtrlE: {
+                PlayerUnlock unlock;
+                INSTRUMENT_CONTROL_edit();
+                break;
+            }
+
+            case kCtrlQ:
+            case kCtrlG: {
+                PlayerUnlock unlock;
+                MACRO_EDITOR(current_inst, fkey == kCtrlG);
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlO:
             case kCtrlH:
-            case kCtrlE:
-            case kCtrlQ:
-            case kCtrlG:
             case kCtrlM:
             case kF1:
                 // 各種画面 (未実装)
@@ -6930,15 +6961,25 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
+            case kCtrlE: {
+                PlayerUnlock unlock;
+                INSTRUMENT_CONTROL_edit();
+                break;
+            }
+
+            case kCtrlQ:
+            case kCtrlG: {
+                PlayerUnlock unlock;
+                MACRO_EDITOR(current_inst, fkey == kCtrlG);
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlB:
             case kCtrlO:
             case kCtrlF:
             case kCtrlH:
-            case kCtrlE:
-            case kCtrlQ:
-            case kCtrlG:
             case kCtrlM:
             case kCtrlX:
             case kF1:

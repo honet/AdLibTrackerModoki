@@ -144,7 +144,9 @@ struct tMENU_ENVIRONMENT
 extern tMENU_SETTING mn_setting;
 extern tMENU_ENVIRONMENT mn_environment;
 
-// 縦のスクロールバー。表示した位置を返す (前回の位置 pos と同じなら描かない)
+// 横 / 縦のスクロールバー。表示した位置を返す (前回の位置 pos と同じなら描かない)
+uint16_t HScrollBar(tSCREEN_MEM_PTR dest, uint8_t x, uint8_t y, uint8_t size, uint16_t len1, uint16_t len2, uint16_t pos,
+                    uint8_t atr1, uint8_t atr2);
 uint16_t VScrollBar(tSCREEN_MEM_PTR dest, uint8_t x, uint8_t y, uint8_t size, uint16_t len1, uint16_t len2, uint16_t pos,
                     uint8_t atr1, uint8_t atr2);
 

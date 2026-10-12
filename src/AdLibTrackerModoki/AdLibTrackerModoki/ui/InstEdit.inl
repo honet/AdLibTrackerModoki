@@ -911,6 +911,7 @@ void instr_control_proc()
 
 void FILE_save(const wchar_t* ext, bool quick);
 void FILE_open_instrument();
+void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
 
 // ---------------------------------------------------------------------------
 // 楽器エディタ (instedit.inc の INSTRUMENT_CONTROL_edit とその補助処理)
@@ -2531,8 +2532,14 @@ void INSTRUMENT_CONTROL_edit()
             reset_instrument_preview();
             break;
         }
+        case kCtrlQ:
+            MACRO_EDITOR(current_inst, false);
+            break;
+        case kCtrlE:
+            MACRO_EDITOR(current_inst, true);
+            break;
         default:
-            // F1 (ヘルプ)・Ctrl+O (オクターブ設定)・Ctrl+Q / Ctrl+E (マクロエディタ) は未実装
+            // F1 (ヘルプ)・Ctrl+O (オクターブ設定) は未実装
             break;
         }
     }
@@ -2695,8 +2702,16 @@ uint8_t INSTRUMENT_CONTROL()
             INSTRUMENT_CONTROL_edit();
             continue;
         }
-        if (key == kCtrlQ || key == kShTAB || key == kCtrlE || key == kCtrlM) {
-            // マクロエディタ (6e-3)・マクロブラウザ (6e-4) は未実装
+        if (key == kCtrlQ || key == kShTAB) {
+            MACRO_EDITOR(instrum_page, false);
+            continue;
+        }
+        if (key == kCtrlE) {
+            MACRO_EDITOR(current_inst, true);
+            continue;
+        }
+        if (key == kCtrlM) {
+            // マクロブラウザ (6e-4) は未実装
             continue;
         }
         if (key == kCtrlO || key == kF1) {
@@ -2733,4 +2748,162 @@ uint8_t INSTRUMENT_CONTROL()
     PlayerLock lock;
     if (Update32(&songdata(), sizeof(FixedSongData), 0) != songdata_crc) module_archived = false;
     return mn_environment.keystroke == kENTER ? instrum_page : 0;
+}
+
+// 楽器を選ぶ窓 (instedit.inc の INSTRUMENT_CONTROL_page_refresh_alt): 左側に選んだ楽器のパラメータを表示する
+void INSTRUMENT_CONTROL_page_refresh_alt(uint8_t page)
+{
+    const FixedSongData& sd = songdata();
+    const tSCREEN_MEM_PTR dest = mn_environment.v_dest;
+    const uint8_t xs = INSCTRL_xshift;
+    const int ys = INSCTRL_yshift;
+    const auto Y = [ys](int y) { return B(ys + y); };
+
+    update_4op_flag_marks();
+    const InstItem* items = (P().ins_parameter(page, 10) & 1) != 1 ? inst_itm1 : inst_itm2;
+    for (int temp = 1; temp <= 18; ++temp) {
+        ShowCStr(dest, B(xs + 10), Y(6 + temp), items[temp - 1].str, dialog_background + dialog_contxt_dis2,
+                 color_table[items[temp - 1].colr]);
+    }
+
+    for (int temp = 1; temp <= 10; ++temp) {
+        ShowStr(dest, B(xs + 32), Y(8 + pos2[temp - 1]), byte2hex(ins_byte(page, _instr_data_ofs[temp - 1])),
+                instrument_bckg + instrument_hi_text);
+    }
+
+    // オリジナルはループを抜けた後の temp (= 10) の色を使う
+    const uint8_t conn = ins_byte(page, _instr_data_ofs[10]);
+    ShowCStr(dest, B(xs + 30), Y(8 + pos2[10]),
+             std::string(connection_str[conn & 1]) + "~/~" + static_cast<char>('0' + ((conn >> 1) & 7)),
+             dialog_background + dialog_item, color_table[inst_itm1[9].colr]);
+
+    const Instrument& ins = at1(sd.instr_data, page);
+    switch (ins.panning) {
+    case 0: ShowStr(dest, B(xs + 24), Y(8 + pos2[11]), "CENTER", instrument_bckg + instrument_hi_text); break;
+    case 1: ShowStr(dest, B(xs + 24), Y(8 + pos2[11]), "LEFT  ", instrument_bckg + instrument_hi_text); break;
+    case 2: ShowStr(dest, B(xs + 24), Y(8 + pos2[11]), "RiGHT ", instrument_bckg + instrument_hi_text); break;
+    }
+
+    ShowStr(dest, B(xs + 24), Y(8 + pos2[12]),
+            (ins.fine_tune < 0 ? "-" : "+") + ExpStrR(Num2str(std::abs(ins.fine_tune), 16), 2, ' '),
+            instrument_bckg + instrument_hi_text);
+
+    ShowCStr(dest, B(xs + 9), Y(26), std::string(" [~") + perc_voice_str[std::min<int>(ins.perc_voice, 5)] + "~] ",
+             dialog_background + dialog_border, dialog_background + dialog_context);
+
+    const RegisterTable& macros = at1(sd.instr_macros, page);
+    std::string temp_str = macros.length != 0 ? " [~MACRO:FM" : " ";
+    if (macros.arpeggio_table != 0) temp_str += temp_str != " " ? "+ARP" : "[~MACRO:ARP";
+    if (macros.vibrato_table != 0) temp_str += temp_str != " " ? "+ViB" : "[~MACRO:ViB";
+    if (temp_str != " ") temp_str += "~] ";
+
+    ShowCStr(dest, B(xs + 19), Y(26), ExpStrR(temp_str, 21 + 1, '\xCD'), dialog_background + dialog_border,
+             dialog_background + dialog_context);
+}
+
+// 楽器を選ぶ窓の Menu の ext_proc (instr_control_proc_alt)
+void instr_control_proc_alt()
+{
+    PlayerLock lock;
+    INSTRUMENT_CONTROL_page_refresh_alt(B(mn_environment.curr_pos));
+    if (!shift_pressed() && !alt_pressed() && !ctrl_pressed()) {
+        const uint16_t t = get_4op_to_test();
+        if (t != 0) INSTRUMENT_test(LO(t), HI(t), count_channel(pattern_hpos), mn_environment.keystroke, false);
+        else INSTRUMENT_test(B(mn_environment.curr_pos), 0, count_channel(pattern_hpos), mn_environment.keystroke, false);
+    }
+}
+
+// 楽器を選ぶ窓 (マクロエディタの Shift+Enter / Ctrl+Shift+Enter)。Enter で閉じたら選んだ楽器、それ以外は 0 を返す
+uint8_t INSTRUMENT_CONTROL_alt(uint8_t instr, const std::string& title)
+{
+    const uint8_t xs = INSCTRL_xshift;
+    const int ys = INSCTRL_yshift;
+    const auto Y = [ys](int y) { return B(ys + y); };
+
+    keyboard_reset_buffer();
+    ScreenMemCopy(screen_ptr, screen_backup);
+    mn_environment.v_dest = temp_screen;
+    ScreenMemCopy(screen_ptr, mn_environment.v_dest);
+
+    mn_setting.center_box = false;
+    mn_setting.cycle_moves = false;
+    mn_environment.ext_proc = instr_control_proc_alt;
+    mn_environment.ext_proc_rt = instr_control_ai;
+
+    Frame(temp_screen, B(xs + 7), Y(5), B(xs + 83), Y(26), dialog_background + dialog_border, " " + title + " ",
+          dialog_background + dialog_title, frame_double);
+
+    fr_setting.update_area = false;
+    fr_setting.shadow_enabled = false;
+    Frame(temp_screen, B(xs + 9), Y(6), B(xs + 34), Y(25), instrument_bckg + instrument_border, "",
+          instrument_bckg + instrument_title, frame_single);
+    Frame(temp_screen, B(xs + 36), Y(6), B(xs + 81), Y(25), instrument_bckg + instrument_border, "",
+          instrument_bckg + instrument_title, frame_single);
+
+    ShowVStr(mn_environment.v_dest, B(xs + 37), Y(7), ExpStrL("", 18, '\x1C'), dialog_background + instrument_ai_off);
+    ShowVStr(mn_environment.v_dest, B(xs + 38), Y(6), "\xC2" + ExpStrL("", 18, '\xB3') + "\xC1",
+             dialog_background + dialog_border);
+
+    fr_setting.shadow_enabled = true;
+
+    color_table[1] = instrument_bckg + instrument_text;
+    color_table[2] = instrument_bckg + instrument_hi_mod;
+    color_table[3] = instrument_bckg + instrument_hi_car;
+
+    {
+        PlayerLock lock;
+        const InstItem* items = (P().ins_parameter(instr, 10) & 1) != 1 ? inst_itm1 : inst_itm2;
+        for (int temp = 1; temp <= 18; ++temp) {
+            ShowCStr(temp_screen, B(xs + 10), Y(6 + temp), items[temp - 1].str, dialog_background + dialog_contxt_dis2,
+                     color_table[items[temp - 1].colr]);
+        }
+        instr_names_to_list();
+    }
+
+    mn_setting.shadow_enabled = false;
+    mn_setting.frame_enabled = false;
+    mn_environment.unpolite = false;
+    mn_environment.preview = true;
+    mn_environment.hlight_chrs = 1;
+
+    if (!_force_program_quit) Menu(instr_list_items, B(xs + 38), Y(6), instr, 42, 18, 255, "");
+
+    {
+        PlayerLock lock;
+        INSTRUMENT_CONTROL_page_refresh_alt(instr);
+    }
+    move_to_screen_data = temp_screen;
+    move_to_screen_area[1] = B(xs + 7);
+    move_to_screen_area[2] = Y(5);
+    move_to_screen_area[3] = B(xs + 83 + 2);
+    move_to_screen_area[4] = Y(26 + 1);
+    move2screen_alt();
+
+    mn_environment.v_dest = screen_ptr;
+    uint16_t temp = 0;
+    if (!_force_program_quit) temp = Menu(instr_list_items, B(xs + 38), Y(6), instr, 42, 18, 255, "");
+
+    {
+        PlayerLock lock;
+        reset_marked_instruments();
+    }
+    mn_environment.unpolite = false;
+    mn_environment.preview = false;
+    mn_setting.frame_enabled = true;
+    mn_setting.shadow_enabled = true;
+    fr_setting.update_area = true;
+    mn_setting.center_box = true;
+    mn_environment.context = "";
+    mn_environment.ext_proc = nullptr;
+    mn_environment.ext_proc_rt = nullptr;
+    mn_environment.hlight_chrs = 0;
+
+    move_to_screen_data = screen_backup;
+    move_to_screen_area[1] = B(xs + 7);
+    move_to_screen_area[2] = Y(5);
+    move_to_screen_area[3] = B(xs + 83 + 2);
+    move_to_screen_area[4] = Y(26 + 1);
+    move2screen();
+
+    return mn_environment.keystroke == kENTER ? B(temp) : 0;
 }

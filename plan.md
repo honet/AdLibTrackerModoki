@@ -4,8 +4,8 @@
 
 ## 現在の状況
 
-- フェーズ6e-2 (楽器エディタ) が完了。
-- 次の作業は 6e-3 (マクロエディタ)。
+- フェーズ6e-3a (マクロエディタの画面と編集) が完了。
+- 次の作業は 6e-3b (マクロの試聴)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -132,7 +132,23 @@
   - 楽器ごとのカーソル位置の記憶 (remember_ins_pos、bank_position_list)
 - 本家との比較は画面モード 2 (本家の adtrack2.ini の sdl_screen_mode=2) で行う。zap.rad (2OP・パーカッション) と
   square.a2m (flag_4op あり) で編集した `data/test6e2.a2m` / `test6e2b.a2m` が ins_4op_flags の未使用部分を除いて一致
-- 楽器エディタの F1 (ヘルプ)・Ctrl+O (オクターブ設定)・Ctrl+Q / Ctrl+E (マクロエディタ) は、まだエディタを開き直すだけ
+- 楽器エディタの F1 (ヘルプ)・Ctrl+O (オクターブ設定) は、まだエディタを開き直すだけ
+
+### フェーズ6e-3a: マクロエディタの画面と編集
+- MACRO_EDITOR を移植 (ui/MacroEdit.inl): Ctrl+Q (FM レジスタのマクロ) と Ctrl+G (アルペジオ / ビブラートのマクロ)
+  - 呼び出し: パターン窓 (トレース中を含む)・オーダー窓の Ctrl+Q / Ctrl+G、楽器窓の Shift+TAB / Ctrl+Q / Ctrl+E、
+    楽器エディタの Ctrl+Q / Ctrl+E。あわせてパターン窓・オーダー窓の Ctrl+E (楽器エディタ) もつないだ
+  - 上段の項目 (長さ・ループ・キーオフ・表の番号など)、グラフ、FM レジスタ表・アルペジオ表・ビブラート表 (スクロールバー付き)。
+    標準以外の画面モードでは窓を広げる
+  - 値の入力と +/-、Ins / Del / BkSpc、列の無効化 (Ctrl+BkSpc / Alt+S / Alt+R / *)、Ctrl+E/N/Z (Ctrl+Alt で全行を消す)、
+    Ctrl+Alt+C/M (キャリアとモジュレータの写し合い)、アルペジオの音名入力、Ctrl+Home/End/PgUp/PgDn (Shift 付きはループ)
+  - Ctrl+C / Shift+Ctrl+C / Ctrl+V / Alt+P、Alt+C のコピーメニュー、Ctrl+Enter (楽器から行へ)、
+    Ctrl+Shift+Enter / Shift+Enter (楽器を選ぶ窓 INSTRUMENT_CONTROL_alt で他の楽器から / へ)
+  - Ctrl+[ / ] (前後の楽器)、Ctrl+Shift+[ / ] (マクロの速度)、Alt+0〜4、F2 / Ctrl+S (A2F の保存)
+  - 横スクロールバー (HScrollBar) を DialogIO に追加
+- 本家と同じキー操作で zap.rad を編集した `data/test6e3.a2m` (画面モード 2) と `test6e3m0.a2m` (画面モード 0。
+  本家の adtrack2.ini を一時的に sdl_screen_mode=0 にして作成) がバイト単位で一致。両モードで画面も一致
+- マクロエディタの F2 (Ctrl+G 側、A2W)・Ctrl+F2・F3・Ctrl+M・Ctrl+O・F1 は、まだエディタを開き直すだけ
 
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
@@ -145,8 +161,8 @@
 ## 今後の計画
 
 ### フェーズ6e: 楽器とマクロ
-- 6e-3 (次の作業): マクロエディタ (Ctrl+Q / Ctrl+G / Ctrl+E、楽器窓の Shift+TAB、楽器エディタの Ctrl+Q / Ctrl+E)
-- 6e-4: A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)
+- 6e-3b (次の作業): マクロエディタの試聴 (Space / Ctrl+Space、PREViEW / LOOP の表示)
+- 6e-4: A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)、マクロエディタの F2 (A2W)・Ctrl+F2・F3・Ctrl+M
 - 6e-5: BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
 
 ### フェーズ6f: その他の編集機能

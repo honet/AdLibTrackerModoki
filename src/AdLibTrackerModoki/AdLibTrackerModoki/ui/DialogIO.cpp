@@ -793,6 +793,29 @@ void menu_refresh()
 
 } // namespace
 
+uint16_t HScrollBar(tSCREEN_MEM_PTR dest, uint8_t x, uint8_t y, uint8_t size, uint16_t len1, uint16_t len2, uint16_t pos,
+                    uint8_t atr1, uint8_t atr2)
+{
+    if (size > work_maxcol - x) size = static_cast<uint8_t>(work_maxcol - x);
+    if (size < 5) size = 5;
+
+    uint16_t temp;
+    if (size - 2 - 1 < 10) temp = _partial(len1, len2, static_cast<uint8_t>(size - 2 - 1));
+    else temp = _partial(len1, len2, static_cast<uint8_t>(size - 2 - 1 - 2));
+
+    if (pos == temp) return temp;
+
+    if (size < len1) {
+        pos = temp;
+        ShowStr(dest, x, y, "\x11" + ExpStrL("", static_cast<uint8_t>(size - 2), '\xB0') + "\x10", atr1);
+        if (size - 2 - 1 < 10) ShowStr(dest, static_cast<uint8_t>(x + 1 + temp), y, "\xB2", atr2);
+        else ShowStr(dest, static_cast<uint8_t>(x + 1 + temp), y, "\xB2\xB2\xB2", atr2);
+    } else {
+        ShowCStr(dest, x, y, "~\x11~" + ExpStrL("", static_cast<uint8_t>(size - 2), '\xB1') + "~\x10~", atr2, atr1);
+    }
+    return pos;
+}
+
 uint16_t VScrollBar(tSCREEN_MEM_PTR dest, uint8_t x, uint8_t y, uint8_t size, uint16_t len1, uint16_t len2, uint16_t pos,
                     uint8_t atr1, uint8_t atr2)
 {
