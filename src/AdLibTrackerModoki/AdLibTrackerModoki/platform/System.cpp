@@ -76,7 +76,9 @@ namespace
     // adt2sys.pas の draw_screen_proc
     void draw_screen_proc()
     {
-        if (!g_force_redraw && std::memcmp(screen_ptr, screen_mirror, SCREEN_MEM_SIZE) == 0) return;
+        // 本家は画面の内容が変わらなくてもカーソルが点滅するので、点滅を切り替える時期にも描き直す
+        const bool blink_due = _cursor_blink_pending_frames >= _cursor_blink_factor;
+        if (!g_force_redraw && !blink_due && std::memcmp(screen_ptr, screen_mirror, SCREEN_MEM_SIZE) == 0) return;
         ScreenMemCopy(screen_ptr, screen_mirror);
         g_force_redraw = false;
         _cursor_blink_factor = static_cast<int32_t>(13.0 / 100 * sdl_frame_rate + 0.5);

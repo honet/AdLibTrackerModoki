@@ -4439,6 +4439,7 @@ enum tCOPY_OBJECT : uint8_t
 struct tCLIPBOARD
 {
     tCOPY_OBJECT object_type;
+    uint8_t pattern_order[128];
     uint8_t block_hsize;
     uint8_t block_vsize;
     Chunk pattern[21][256];   // [1..20][0..255]
@@ -4726,7 +4727,7 @@ void unmark_block(uint8_t page, uint8_t hpos)
     marking = false;
 }
 
-// 戻り値は終了の原因となったキー (kESC / kF10)
+// 戻り値は終了の原因となったキー (kESC / kF10、kENTER は PATTERN ORDER 窓へ移る)
 uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 {
     uint8_t chan;
@@ -4831,6 +4832,7 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
         }
         if (_force_program_quit) return kESC;
 
+        bool leave = false;
         {
             PlayerLock lock;
             A2Player& p = P();
@@ -6005,11 +6007,535 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 }
             }
 
-            // Enter (ウィンドウの切り替え) は未実装
+            // Enter で PATTERN ORDER 窓へ移る
+            if (nope && fkey == kENTER) leave = true;
         }
 
         draw_screen();
         process_F11_F12();
+
+        if (leave) {
+            PlayerLock lock;
+            if (track_notes) {
+                cancel_note_recorder();
+                stop_playing();
+            }
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(page);
+            return kENTER;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PATTERN ORDER 窓の編集 (ipattord.inc の PATTERN_ORDER_edit)
+// ---------------------------------------------------------------------------
+
+constexpr uint8_t order_input_bckg = 0xb0;
+constexpr uint8_t order_input = 0x00;
+constexpr uint8_t order_input_warn = 0xc0;
+
+// Alt+C のメニュー (typcons2.inc の copy_menu_str3)
+const char* const copy_menu_str3[15] = {
+    " COPY ~O~RDER DEF.",
+    " COPY O~R~DER TABLE",
+    " COPY iNSTRUMENT",
+    " COPY iNSTRUMENT BANK",
+    " COPY NOTE",
+    " COPY iNSTRUMENT DEF.",
+    " COPY 1ST EFFECT",
+    " COPY 2ND EFFECT",
+    " COPY LiNE",
+    " COPY TRACK",
+    " COPY PATTERN",
+    " COPY MARKED BLOCK",
+    " COPY MACRO-TABLE LiNE",
+    " COPY MACRO-TABLE COLUMN",
+    " COPY MACRO-TABLE",
+};
+
+uint8_t copypos3 = 1;
+
+// オーダー窓の最後のページ
+uint8_t last_order_page() { return B(23 - (MAX_ORDER_COLS - 9)); }
+
+// オーダー窓のカーソルを次 / 前の欄へ (Down / Tab、Up / Shift+Tab)
+void order_cursor_next(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
+{
+    if (vpos < 4) ++vpos;
+    else if (hpos < MAX_ORDER_COLS) { ++hpos; vpos = 1; }
+    else if (page < last_order_page()) { ++page; vpos = 1; }
+}
+
+void order_cursor_prev(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
+{
+    if (vpos > 1) --vpos;
+    else if (hpos > 1) { --hpos; vpos = 4; }
+    else if (page > 0) { --page; vpos = 4; }
+}
+
+// 書き込んだ後に次の欄へ (オリジナルは最後の列でページを進めるとき hpos を MAX_ORDER_COLS にする)
+void order_cursor_advance(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
+{
+    if (vpos < 4) ++vpos;
+    else if (hpos < MAX_ORDER_COLS) { vpos = 1; ++hpos; }
+    else if (page < last_order_page()) { hpos = MAX_ORDER_COLS; ++page; vpos = 1; }
+}
+
+// オーダー窓での F8 / F9 (カーソルのオーダーから再生する)。ロックを取った状態で呼ぶ。トレースに入る場合は true を返す。
+bool process_order_play_keys(uint16_t fkey, uint8_t order)
+{
+    A2Player& p = P();
+    const bool repeat = fkey == kF9 || fkey == kAltF9 || fkey == kShF9;
+    const uint16_t alt = repeat ? kAltF9 : kAltF8;
+    const uint16_t plain = repeat ? kF9 : kF8;
+    const bool nosync = (!nosync_by_default && fkey == alt) || (nosync_by_default && fkey == plain);
+    const bool playable = p.order_at(order) < 0x80 && p.calc_pattern_pos(p.order_at(order)) != BYTE_NULL;
+
+    if (p.play_single_patt && p.play_status == PlayStatus::Paused) {
+        p.replay_forbidden = false;
+        p.play_status = PlayStatus::Playing;
+        return want_trace();
+    }
+    switch (p.play_status) {
+    case PlayStatus::Playing:
+        p.debugging = false;
+        p.repeat_pattern = repeat;
+        if (nosync) p.no_sync_playing = true;
+        if (want_trace()) return true;
+        if (playable) {
+            stop_playing();
+            calibrate_player(order, 0, false);
+            if (repeat) p.repeat_pattern = true;
+        }
+        return false;
+    case PlayStatus::Stopped:
+        if (playable) {
+            p.debugging = false;
+            if (nosync) p.no_sync_playing = true;
+            calibrate_player(order, 0, false);
+            p.repeat_pattern = repeat;
+            return want_trace();
+        }
+        return false;
+    case PlayStatus::Paused:
+        p.debugging = false;
+        p.repeat_pattern = repeat;
+        p.replay_forbidden = false;
+        p.play_status = PlayStatus::Playing;
+        if (nosync) p.no_sync_playing = true;
+        return want_trace();
+    }
+    return false;
+}
+
+// 戻り値は終了の原因となったキー (kESC / kF10、kENTER はパターン窓へ移る)
+uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
+{
+    // PATTERN_trace から戻ったとき、F10 で終了するなら true
+    const auto run_trace = []() -> bool {
+        PlayerUnlock unlock;
+        const uint16_t temp1 = PATTERN_trace();
+        return temp1 == kF10 || _force_program_quit;
+    };
+
+    uint8_t songdata_ord[128];
+    {
+        PlayerLock lock;
+        std::memcpy(songdata_ord, songdata().pattern_order, sizeof(songdata_ord));
+    }
+
+    for (;;) {
+        if (_force_program_quit) return kESC;
+
+        {
+            PlayerLock lock;
+            PATTERN_ORDER_page_refresh(page);
+            PATTERN_page_refresh(pattern_page);
+        }
+
+        const uint8_t xstart = B(23 + PATTORD_xshift);
+        GotoXY(B(xstart + pos1[hpos] - 1), B(3 + vpos - 1));
+
+        if (tracing) {
+            // デバッグ情報で Space を押して再生を始めた場合
+            tracing = false;
+            if (run_trace()) return kF10;
+        } else if (use_large_cursor) {
+            WideCursor();
+        } else {
+            ThinCursor();
+        }
+
+        if (ctrl_pressed() && alt_pressed()) {
+            DEBUG_INFO();
+            PlayerLock lock;
+            PATTERN_ORDER_page_refresh(pattord_page);
+            PATTERN_page_refresh(pattern_page);
+        }
+
+        uint16_t fkey = process_events();
+        if (fkey == WORD_NULL) {
+            if (!keypressed()) {
+                draw_screen();
+                process_F11_F12();
+                continue;
+            }
+            fkey = getkey();
+        }
+        if (_force_program_quit) return kESC;
+
+        bool nope = false;
+        {
+            PlayerLock lock;
+            A2Player& p = P();
+            FixedSongData& sd = songdata();
+            const uint8_t idx = B(vpos + 4 * (hpos + page - 1) - 1);
+            uint8_t& entry = sd.pattern_order[idx];
+            bool trace = false;
+
+            switch (fkey) {
+            case kLEFT:
+                if (hpos > 1) --hpos;
+                else if (page > 0) --page;
+                break;
+
+            case kRIGHT:
+                if (hpos < MAX_ORDER_COLS) ++hpos;
+                else if (page < last_order_page()) ++page;
+                break;
+
+            case kUP:
+            case kShTAB:
+                order_cursor_prev(page, hpos, vpos);
+                break;
+
+            case kDOWN:
+            case kTAB:
+                order_cursor_next(page, hpos, vpos);
+                break;
+
+            case kPgUP:
+                if (page - 8 > 0) {
+                    page = B(page - 8);
+                } else if (page > 0) {
+                    page = 0;
+                } else {
+                    page = 0;
+                    hpos = 1;
+                    vpos = 1;
+                }
+                break;
+
+            case kPgDOWN:
+                if (page + 8 < last_order_page()) {
+                    page = B(page + 8);
+                } else if (page < last_order_page()) {
+                    page = last_order_page();
+                } else {
+                    page = last_order_page();
+                    hpos = MAX_ORDER_COLS;
+                    vpos = 4;
+                }
+                break;
+
+            case kHOME:
+                page = 0;
+                hpos = 1;
+                vpos = 1;
+                break;
+
+            case kEND:
+                page = last_order_page();
+                hpos = MAX_ORDER_COLS;
+                vpos = 4;
+                break;
+
+            case kCHmins:
+            case kNPmins:
+                if (entry < 0x80) {
+                    if (entry > 0) --entry;
+                } else if (entry > 0x80) {
+                    --entry;
+                }
+                break;
+
+            case kCHplus:
+            case kNPplus:
+                if (entry < 0x80) {
+                    if (entry < 0x7f) ++entry;
+                } else if (entry < 0xff) {
+                    if (idx == 0 && entry == 0x80) entry = 0;
+                    else ++entry;
+                }
+                break;
+
+            case kBkSPC:
+                entry = 0x80;
+                switch (backspace_dir) {
+                case 1: order_cursor_advance(page, hpos, vpos); break;
+                case 2: order_cursor_prev(page, hpos, vpos); break;
+                }
+                break;
+
+            case kSPACE:
+                if (ctrl_pressed()) {
+                    // 次のオーダーへのジャンプ
+                    if (idx < 0x7f) {
+                        entry = B(0x80 + idx + 1);
+                        order_cursor_advance(page, hpos, vpos);
+                    }
+                } else {
+                    entry = 0x80;
+                    order_cursor_advance(page, hpos, vpos);
+                }
+                break;
+
+            case kAltL:
+                // 行の印の設定 (LINE_MARKING_SETUP) は未実装
+                break;
+
+            case kAltM:
+                if (p.mark_line != 0) {
+                    mark_lines = !mark_lines;
+                    PATTERN_ORDER_page_refresh(pattord_page);
+                    PATTERN_page_refresh(pattern_page);
+                }
+                break;
+
+            case kINSERT:
+                for (int temp = 0x7f; temp >= idx + 1; --temp) sd.pattern_order[temp] = sd.pattern_order[temp - 1];
+                sd.pattern_order[idx] = 0;
+                break;
+
+            case kDELETE:
+                for (int temp = idx; temp <= 0x7f - 1; ++temp) sd.pattern_order[temp] = sd.pattern_order[temp + 1];
+                sd.pattern_order[0x7f] = 0x80;
+                break;
+
+            case kCtrlC:
+                clipboard.object_type = objPatternDef;
+                clipboard.pattern_order[0] = entry;
+                break;
+
+            case kAltC: {
+                mn_setting.cycle_moves = true;
+                std::vector<std::string> items(std::begin(copy_menu_str3), std::end(copy_menu_str3));
+                uint16_t temp;
+                {
+                    PlayerUnlock unlock;
+                    temp = Menu(items, 1, 1, copypos3, 30, 15, 15, " COPY OBJECT ");
+                }
+                if (mn_environment.keystroke != kESC) {
+                    copypos3 = B(temp);
+                    clipboard.object_type = static_cast<tCOPY_OBJECT>(temp);
+                    if (clipboard.object_type == objPatternDef) clipboard.pattern_order[0] = entry;
+                    else if (clipboard.object_type == objPatternTable)
+                        std::memcpy(clipboard.pattern_order, sd.pattern_order, sizeof(clipboard.pattern_order));
+                }
+                break;
+            }
+
+            case kAltP:
+            case kCtrlV:
+                if (clipboard.object_type == objPatternDef) {
+                    entry = clipboard.pattern_order[0];
+                    order_cursor_next(page, hpos, vpos);
+                } else if (clipboard.object_type == objPatternTable) {
+                    std::memcpy(sd.pattern_order, clipboard.pattern_order, sizeof(sd.pattern_order));
+                }
+                break;
+
+            case kCtrlT:
+            case kCtrlR:
+            case kCtrlB:
+            case kCtrlO:
+            case kCtrlP:
+            case kCtrlF:
+            case kCtrlH:
+            case kCtrlI:
+            case kCtrlE:
+            case kCtrlQ:
+            case kCtrlG:
+            case kCtrlM:
+            case kCtrlX:
+            case kF1:
+                // 各種画面 (未実装)
+                break;
+
+            case kCtrlD: {
+                PlayerUnlock unlock;
+                DEBUG_INFO();
+                break;
+            }
+
+            case kCtLEFT:
+                if (p.play_status == PlayStatus::Playing) p.rewind = true;
+                break;
+
+            case kCtRGHT:
+                if (p.play_status == PlayStatus::Playing) p.fast_forward = true;
+                break;
+
+            case kCtENTR: {
+                PlayerUnlock unlock;
+                jump_to_next_order();
+                break;
+            }
+
+            case kF2: case kShF2: case kCtrlS:
+            case kCtrlF2:
+            case kF4: case kCtrlA: {
+                PlayerUnlock unlock;
+                process_file_keys(fkey, false);
+                break;
+            }
+
+            case kF3:
+            case kCtrlL: {
+                PlayerUnlock unlock;
+                FILE_open();
+                break;
+            }
+
+            case kF5: case kAltF5: case kShF5:
+            case kF6:
+                trace = process_play_keys(fkey, pattern_patt);
+                break;
+
+            case kShF6:
+                if (!p.replay_forbidden) {
+                    p.debugging = true;
+                    p.play_status = PlayStatus::Playing;
+                    trace = true;
+                } else if (!p.play_single_patt && entry < 0x80 && p.calc_pattern_pos(entry) != BYTE_NULL) {
+                    {
+                        PlayerUnlock unlock;
+                        fade_out_playback(false);
+                    }
+                    calibrate_player(idx, 0, false);
+                    if (p.play_status != PlayStatus::Stopped) {
+                        p.debugging = true;
+                        p.play_status = PlayStatus::Playing;
+                        p.replay_forbidden = false;
+                        PATTERN_ORDER_page_refresh(pattord_page);
+                        PATTERN_page_refresh(pattern_page);
+                        trace = true;
+                    }
+                }
+                break;
+
+            case kF7: {
+                {
+                    PlayerUnlock unlock;
+                    fade_out_playback(false);
+                }
+                stop_playing();
+                if (p.play_status != PlayStatus::Stopped) std::fill(std::begin(p.ai_table), std::end(p.ai_table), uint8_t(0));
+                break;
+            }
+
+            case kF8: case kAltF8: case kShF8:
+            case kF9: case kAltF9: case kShF9:
+                trace = process_order_play_keys(fkey, idx);
+                break;
+
+            case kF10:
+            case kESC: {
+                bool quit;
+                {
+                    PlayerUnlock unlock;
+                    quit = QUIT_request();
+                }
+                if (quit) return kESC;
+                break;
+            }
+
+            case kENTER:
+                nope = true;
+                break;
+
+            default:
+                if (!process_channel_keys(fkey)) nope = true;
+                break;
+            }
+
+            if (pending_track_dialog) {
+                pending_track_dialog = false;
+                PlayerUnlock unlock;
+                track_onoff_dialog();
+            }
+
+            if (trace && run_trace()) return kF10;
+        }
+
+        // --- オーダーの直接入力 (16 進数 2 桁) ---
+        const char key_chr = UpCase(static_cast<char>(LO(fkey)));
+        if (nope && ((key_chr >= '0' && key_chr <= '9') || (key_chr >= 'A' && key_chr <= 'F'))) {
+            no_trace_pattord = true;
+            nope = false;
+            is_setting.append_enabled = false;
+            is_setting.character_set = HEX_NUM_CHARSET;
+            is_environment.locate_pos = 2;
+            is_setting.terminate_keys[2] = kUP;
+            is_setting.terminate_keys[3] = kDOWN;
+            is_setting.terminate_keys[4] = kTAB;
+            is_setting.terminate_keys[5] = kShTAB;
+            std::string tstr(1, static_cast<char>(LO(fkey)));
+            const uint8_t xstart = B(23 + PATTORD_xshift);
+
+            do {
+                tstr = ExpStrL(InputStr(tstr, B(xstart + pos1[hpos] - 1), B(3 + vpos - 1), 2, 2,
+                                        order_input_bckg + order_input, order_input_warn + order_input),
+                               2, '0');
+                is_setting.append_enabled = true;
+
+                const int value = Str2num(tstr, 16);
+                if (value >= 0 && value <= 0xff && is_environment.keystroke != kESC) {
+                    PlayerLock lock;
+                    const uint8_t idx = B(vpos + 4 * (hpos + page - 1) - 1);
+                    // 自分自身へのジャンプは書き込むが、入力を続ける (オリジナルどおり)
+                    if (value > 0x7f && value - 0x80 == idx) is_environment.keystroke = WORD_NULL;
+                    else nope = true;
+                    songdata().pattern_order[idx] = B(value);
+                    if (is_environment.keystroke == kENTER) order_cursor_advance(page, hpos, vpos);
+                }
+            } while (!(is_environment.keystroke == kESC || is_environment.keystroke == kUP ||
+                       is_environment.keystroke == kDOWN || is_environment.keystroke == kTAB ||
+                       is_environment.keystroke == kShTAB || nope || _force_program_quit));
+
+            no_trace_pattord = false;
+            nope = false;
+            switch (is_environment.keystroke) {
+            case kUP:
+            case kShTAB:
+                order_cursor_prev(page, hpos, vpos);
+                break;
+            case kDOWN:
+            case kTAB:
+                order_cursor_next(page, hpos, vpos);
+                break;
+            }
+
+            is_setting.terminate_keys[2] = 0;
+            is_setting.terminate_keys[3] = 0;
+            is_setting.terminate_keys[4] = 0;
+            is_setting.terminate_keys[5] = 0;
+        }
+
+        {
+            PlayerLock lock;
+            if (std::memcmp(songdata().pattern_order, songdata_ord, sizeof(songdata_ord)) != 0) module_archived = false;
+        }
+
+        draw_screen();
+        process_F11_F12();
+
+        if (nope && fkey == kENTER) {
+            PlayerLock lock;
+            PATTERN_ORDER_page_refresh(page);
+            return kENTER;
+        }
     }
 }
 
@@ -6043,8 +6569,11 @@ void run_main_screen(HWND hwnd)
     sys_set_realtime_proc(realtime_gfx_poll_proc);
     move_to_screen_routine = move2screen;
     do_synchronize = true;
+    // Enter でパターン窓と PATTERN ORDER 窓を行き来する
+    uint16_t fkey = kENTER;
     for (;;) {
-        const uint16_t fkey = PATTERN_edit(pattern_patt, pattern_page, pattern_hpos);
+        if (fkey == kENTER) fkey = PATTERN_edit(pattern_patt, pattern_page, pattern_hpos);
+        if (fkey == kENTER) fkey = PATTERN_ORDER_edit(pattord_page, pattord_hpos, pattord_vpos);
         if (fkey == kESC || fkey == kF10 || _force_program_quit) break;
     }
     cancel_note_recorder();
