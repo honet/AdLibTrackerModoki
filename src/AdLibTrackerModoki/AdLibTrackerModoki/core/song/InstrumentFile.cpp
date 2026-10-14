@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <vector>
 
 #include "Depack.h"
@@ -51,6 +52,87 @@ namespace
 
     const char A2I_ID[] = "_A2ins_";
     const char A2F_ID[] = "_a2ins_w/fm-macro_";
+
+    constexpr uint8_t FFVER_A2B = 10;
+    constexpr uint8_t FFVER_A2W = 3;
+
+#pragma pack(push, 1)
+    struct A2bOldHeader   // tOLD_HEADER (A2B 形式 1..8)
+    {
+        char ident[11];
+        uint32_t crc32;
+        uint8_t ffver;
+        uint16_t b0len;
+    };
+
+    struct A2bHeader   // tHEADER (A2B 形式 9, 10)
+    {
+        char ident[11];
+        uint32_t crc32;
+        uint8_t ffver;
+        uint32_t b0len;
+    };
+
+    struct A2wOldHeader   // tOLD_HEADER (A2W 形式 1)
+    {
+        char ident[20];
+        uint32_t crc32;
+        uint8_t ffver;
+        uint32_t b0len;
+        uint32_t b1len;
+    };
+
+    struct A2wHeader   // tHEADER (A2W 形式 2, 3)
+    {
+        char ident[20];
+        uint32_t crc32;
+        uint8_t ffver;
+        uint32_t b0len;
+        uint32_t b1len;
+        uint32_t b2len;
+    };
+#pragma pack(pop)
+
+    static_assert(sizeof(A2bOldHeader) == 18);
+    static_assert(sizeof(A2bHeader) == 20);
+    static_assert(sizeof(A2wOldHeader) == 33);
+    static_assert(sizeof(A2wHeader) == 37);
+
+    const char A2B_ID[] = "_A2insbank_";
+    const char A2W_ID[] = "_A2insbank_w/macros_";
+
+    // 楽器名の先頭 9 文字 (印と ' iNS_xx'#247' ') を外す。外した印を marks[1..255] に入れる
+    void strip_instr_names(FixedSongData& songdata, char (&marks)[256])
+    {
+        for (int temp = 1; temp <= 255; ++temp) {
+            auto& name = at1(songdata.instr_names, temp);
+            marks[temp] = name.data[0];
+            delete_head(name, 9);
+            fill_after_length(name, 32 - name.len);
+        }
+    }
+
+    // 楽器名の先頭に印と番号を付け直す
+    void restore_instr_names(FixedSongData& songdata, const char (&marks)[256])
+    {
+        for (int temp = 1; temp <= 255; ++temp) {
+            pinsertHead(at1(songdata.instr_names, temp),
+                        std::string(1, marks[temp]) + "iNS_" + byte2hex(static_cast<uint8_t>(temp)) + "\xF7 ");
+        }
+    }
+
+    void save_instr_marks(const FixedSongData& songdata, char (&marks)[256])
+    {
+        for (int temp = 1; temp <= 255; ++temp) marks[temp] = at1(songdata.instr_names, temp).data[0];
+    }
+
+    // Move(buf, dst, size)。展開結果が size に足りなければ残りは 0 とする
+    void move_from(const std::vector<uint8_t>& buf, size_t ofs, void* dst, size_t size)
+    {
+        const size_t n = buf.size() > ofs ? std::min(size, buf.size() - ofs) : 0;
+        if (n > 0) std::memcpy(dst, buf.data() + ofs, n);
+        if (n < size) std::memset(static_cast<uint8_t*>(dst) + n, 0, size - n);
+    }
 
     std::wstring lower_ext(const std::wstring& path)
     {
@@ -492,6 +574,274 @@ SaveResult SaveA2f(const std::wstring& path, const FixedSongData& songdata, uint
     header.crc32 = 0xffffffff;
     header.crc32 = Update32(&header.b0len, 1, header.crc32);
     header.crc32 = Update32(buf3.data(), header.b0len, header.crc32);
+    if (!f.write_at(0, &header, sizeof(header))) return f.fail();
+    return SaveResult::Ok;
+}
+
+bool LoadA2bBank(const std::wstring& path, FixedSongData& temp_songdata, std::wstring& error)
+{
+    const auto corrupted = [&error] {
+        error = L"ファイルが壊れています";
+        return false;
+    };
+    const auto crc_failed = [&error] {
+        error = L"CRC が一致しません";
+        return false;
+    };
+
+    std::vector<uint8_t> file;
+    if (!readFile(path, file)) {
+        error = L"ファイルを開けません";
+        return false;
+    }
+
+    Reader reader(file);
+    std::vector<uint8_t> buf1;
+    std::vector<uint8_t> buf2;
+
+    A2bOldHeader header{};
+    if (reader.read(&header, sizeof(header)) != sizeof(header) || std::memcmp(header.ident, A2B_ID, 11) != 0) {
+        return corrupted();
+    }
+    if (header.ffver < 1 || header.ffver > FFVER_A2B) {
+        error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+        return false;
+    }
+
+    if (header.ffver <= 8) {
+        auto old_songdata = std::make_unique<OldFixedSongData>();
+        init_old_songdata(*old_songdata);
+        if (!reader.readInto(buf1, header.b0len)) return corrupted();
+        uint32_t crc = 0xffffffff;
+        crc = Update32(&header.b0len, 2, crc);
+        crc = Update32(buf1.data(), header.b0len, crc);
+        if (crc != header.crc32) return crc_failed();
+
+        // 形式 1..4 と 5..8 は同じ並び (展開方法が 4..1 / 8..5 の順に Move / LZSS / LZW / SixPack)
+        decompressOld(static_cast<uint8_t>(header.ffver <= 4 ? 4 - header.ffver : 8 - header.ffver), buf1, header.b0len, buf2);
+        copyToField(*old_songdata, old_songdata->instr_names, buf2);
+        if (header.ffver <= 4) {
+            for (int temp = 1; temp <= 250; ++temp) at1(old_songdata->instr_data, temp).panning = 0;
+        }
+
+        // import_old_instruments (楽器 1..250)
+        for (int temp = 1; temp <= 250; ++temp) {
+            auto& name = at1(temp_songdata.instr_names, temp);
+            name.assign(pcopy(name.str(), 1, 9) + pcopy(at1(old_songdata->instr_names, temp).str(), 10, 22));
+            Instrument& ins = at1(temp_songdata.instr_data, temp);
+            const OldInstrument& old = at1(old_songdata->instr_data, temp);
+            ins.fm_data = old.fm_data;
+            ins.panning = old.panning;
+            ins.fine_tune = old.fine_tune;
+            ins.perc_voice = 0;
+        }
+    } else {
+        reader.seek(0);
+        A2bHeader header2{};
+        if (reader.read(&header2, sizeof(header2)) != sizeof(header2) || std::memcmp(header2.ident, A2B_ID, 11) != 0) {
+            return corrupted();
+        }
+        if (!reader.readInto(buf1, header2.b0len)) return corrupted();
+        uint32_t crc = 0xffffffff;
+        crc = Update32(&header2.b0len, 2, crc);
+        crc = Update32(buf1.data(), header2.b0len, crc);
+        if (crc != header2.crc32) return crc_failed();
+
+        char temp_marks[256];
+        save_instr_marks(temp_songdata, temp_marks);
+        if (header.ffver == 9) {
+            APACK_decompress(buf1.data(), header2.b0len, buf2);
+            copyToField(temp_songdata, temp_songdata.instr_names, buf2);
+        } else {
+            // 形式 10 (FFVER_A2B): 楽器名・楽器データ・4OP の組
+            LZH_decompress(buf1.data(), header2.b0len, header2.b0len, buf2);
+            const size_t size = sizeof(temp_songdata.instr_names) + sizeof(temp_songdata.instr_data);
+            move_from(buf2, 0, temp_songdata.instr_names, size);
+            move_from(buf2, size, &temp_songdata.ins_4op_flags, sizeof(temp_songdata.ins_4op_flags));
+        }
+        restore_instr_names(temp_songdata, temp_marks);
+    }
+
+    std::memset(temp_songdata.dis_fmreg_col, 0, sizeof(temp_songdata.dis_fmreg_col));
+    return true;
+}
+
+bool LoadA2wBank(const std::wstring& path, FixedSongData& temp_songdata, std::wstring& error)
+{
+    const auto corrupted = [&error] {
+        error = L"ファイルが壊れています";
+        return false;
+    };
+    const auto crc_failed = [&error] {
+        error = L"CRC が一致しません";
+        return false;
+    };
+
+    std::vector<uint8_t> file;
+    if (!readFile(path, file)) {
+        error = L"ファイルを開けません";
+        return false;
+    }
+
+    Reader reader(file);
+    std::vector<uint8_t> buf1;
+    std::vector<uint8_t> buf2;
+    char temp_marks[256];
+
+    A2wHeader header{};
+    if (reader.read(&header, sizeof(header)) != sizeof(header) || std::memcmp(header.ident, A2W_ID, 20) != 0) {
+        return corrupted();
+    }
+    if (header.ffver < 1 || header.ffver > FFVER_A2W) {
+        error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+        return false;
+    }
+
+    if (header.ffver == 1) {
+        reader.seek(0);
+        A2wOldHeader header2{};
+        if (reader.read(&header2, sizeof(header2)) != sizeof(header2) || std::memcmp(header2.ident, A2W_ID, 20) != 0) {
+            return corrupted();
+        }
+        uint32_t crc = 0xffffffff;
+        if (!reader.readInto(buf1, header2.b0len)) return corrupted();
+        crc = Update32(buf1.data(), header2.b0len, crc);
+        if (!reader.readInto(buf1, header2.b1len)) return corrupted();
+        crc = Update32(buf1.data(), header2.b1len, crc);
+        crc = Update32(&header2.b0len, 2, crc);
+        crc = Update32(&header2.b1len, 2, crc);
+        if (crc != header2.crc32) return crc_failed();
+
+        reader.seek(sizeof(header2));
+        if (!reader.readInto(buf1, header2.b0len)) return corrupted();
+        save_instr_marks(temp_songdata, temp_marks);
+        APACK_decompress(buf1.data(), header2.b0len, buf2);
+        copyToField(temp_songdata, temp_songdata.instr_names, buf2);
+        restore_instr_names(temp_songdata, temp_marks);
+
+        if (!reader.readInto(buf1, header2.b1len)) return corrupted();
+        APACK_decompress(buf1.data(), header2.b1len, buf2);
+        copyToField(temp_songdata, temp_songdata.macro_table, buf2);
+        std::memset(temp_songdata.dis_fmreg_col, 0, sizeof(temp_songdata.dis_fmreg_col));
+        return true;
+    }
+
+    // 形式 2, 3
+    uint32_t crc = 0xffffffff;
+    if (!reader.readInto(buf1, header.b0len)) return corrupted();
+    crc = Update32(buf1.data(), header.b0len, crc);
+    if (!reader.readInto(buf1, header.b1len)) return corrupted();
+    crc = Update32(buf1.data(), header.b1len, crc);
+    if (!reader.readInto(buf1, header.b2len)) return corrupted();
+    crc = Update32(buf1.data(), header.b2len, crc);
+    crc = Update32(&header.b0len, 2, crc);
+    crc = Update32(&header.b1len, 2, crc);
+    crc = Update32(&header.b2len, 2, crc);
+    if (crc != header.crc32) return crc_failed();
+
+    reader.seek(sizeof(header));
+    if (!reader.readInto(buf1, header.b0len)) return corrupted();
+    save_instr_marks(temp_songdata, temp_marks);
+    if (header.ffver == 2) {
+        APACK_decompress(buf1.data(), header.b0len, buf2);
+        copyToField(temp_songdata, temp_songdata.instr_names, buf2);
+    } else {
+        // 形式 3 (FFVER_A2W): 楽器名・楽器データ・FM マクロ・4OP の組
+        LZH_decompress(buf1.data(), header.b0len, header.b0len, buf2);
+        const size_t size = sizeof(temp_songdata.instr_names) + sizeof(temp_songdata.instr_data) + sizeof(temp_songdata.instr_macros);
+        move_from(buf2, 0, temp_songdata.instr_names, size);
+        move_from(buf2, size, &temp_songdata.ins_4op_flags, sizeof(temp_songdata.ins_4op_flags));
+    }
+    restore_instr_names(temp_songdata, temp_marks);
+
+    if (!reader.readInto(buf1, header.b1len)) return corrupted();
+    if (header.ffver == 2) APACK_decompress(buf1.data(), header.b1len, buf2);
+    else LZH_decompress(buf1.data(), header.b1len, header.b1len, buf2);
+    copyToField(temp_songdata, temp_songdata.macro_table, buf2);
+
+    if (!reader.readInto(buf1, header.b2len)) return corrupted();
+    if (header.ffver == 2) APACK_decompress(buf1.data(), header.b2len, buf2);
+    else LZH_decompress(buf1.data(), header.b2len, header.b2len, buf2);
+    copyToField(temp_songdata, temp_songdata.dis_fmreg_col, buf2);
+    return true;
+}
+
+SaveResult SaveA2b(const std::wstring& path, FixedSongData& songdata)
+{
+    Writer f(path);
+    if (!f.is_open()) return SaveResult::WriteError;
+
+    A2bHeader header{};
+    std::memcpy(header.ident, A2B_ID, 11);
+    header.ffver = FFVER_A2B;
+    if (!f.write(&header, sizeof(header))) return f.fail();
+
+    char temp_marks[256];
+    strip_instr_names(songdata, temp_marks);
+    std::vector<uint8_t> buf2;
+    append(buf2, songdata.instr_names, sizeof(songdata.instr_names) + sizeof(songdata.instr_data));
+    append(buf2, &songdata.ins_4op_flags, sizeof(songdata.ins_4op_flags));
+    std::vector<uint8_t> buf1;
+    const size_t temp2 = LZH_compress(buf2.data(), static_cast<uint32_t>(buf2.size()), buf1);
+    restore_instr_names(songdata, temp_marks);
+
+    if (!f.write(buf1.data(), temp2)) return f.fail();
+
+    header.b0len = static_cast<uint32_t>(temp2);
+    uint32_t crc = 0xffffffff;
+    crc = Update32(&header.b0len, 2, crc);
+    crc = Update32(buf1.data(), header.b0len, crc);
+    header.crc32 = crc;
+    if (!f.write_at(0, &header, sizeof(header))) return f.fail();
+    return SaveResult::Ok;
+}
+
+SaveResult SaveA2w(const std::wstring& path, FixedSongData& songdata, const SaveProgress* progress)
+{
+    Writer f(path);
+    if (!f.is_open()) return SaveResult::WriteError;
+
+    if (progress && progress->begin) progress->begin(3);
+    const auto step = [progress] {
+        if (progress && progress->step) progress->step();
+    };
+    static const LzhProgress no_progress;
+    const LzhProgress& value = progress ? progress->value : no_progress;
+
+    A2wHeader header{};
+    header.crc32 = 0xffffffff;
+    std::memcpy(header.ident, A2W_ID, 20);
+    header.ffver = FFVER_A2W;
+    if (!f.write(&header, sizeof(header))) return f.fail();
+
+    char temp_marks[256];
+    strip_instr_names(songdata, temp_marks);
+    std::vector<uint8_t> buf2;
+    append(buf2, songdata.instr_names,
+           sizeof(songdata.instr_names) + sizeof(songdata.instr_data) + sizeof(songdata.instr_macros));
+    append(buf2, &songdata.ins_4op_flags, sizeof(songdata.ins_4op_flags));
+    std::vector<uint8_t> buf1;
+    header.b0len = static_cast<uint32_t>(LZH_compress(buf2.data(), static_cast<uint32_t>(buf2.size()), buf1, value));
+    step();
+    restore_instr_names(songdata, temp_marks);
+    if (!f.write(buf1.data(), header.b0len)) return f.fail();
+    header.crc32 = Update32(buf1.data(), header.b0len, header.crc32);
+
+    header.b1len = static_cast<uint32_t>(LZH_compress(reinterpret_cast<const uint8_t*>(songdata.macro_table),
+                                                      sizeof(songdata.macro_table), buf1, value));
+    step();
+    if (!f.write(buf1.data(), header.b1len)) return f.fail();
+    header.crc32 = Update32(buf1.data(), header.b1len, header.crc32);
+
+    header.b2len = static_cast<uint32_t>(LZH_compress(reinterpret_cast<const uint8_t*>(songdata.dis_fmreg_col),
+                                                      sizeof(songdata.dis_fmreg_col), buf1, value));
+    step();
+    if (!f.write(buf1.data(), header.b2len)) return f.fail();
+    header.crc32 = Update32(buf1.data(), header.b2len, header.crc32);
+
+    header.crc32 = Update32(&header.b0len, 2, header.crc32);
+    header.crc32 = Update32(&header.b1len, 2, header.crc32);
+    header.crc32 = Update32(&header.b2len, 2, header.crc32);
     if (!f.write_at(0, &header, sizeof(header))) return f.fail();
     return SaveResult::Ok;
 }

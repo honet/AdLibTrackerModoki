@@ -36,4 +36,16 @@ bool LoadInstrumentFile(const std::wstring& path, FixedSongData& songdata, uint8
 SaveResult SaveA2i(const std::wstring& path, const FixedSongData& songdata, uint8_t current_inst);
 SaveResult SaveA2f(const std::wstring& path, const FixedSongData& songdata, uint8_t current_inst);
 
+// 楽器バンク (A2B / A2W) の読み書き (adt2ext5.pas の a2b_file_loader / a2w_file_loader のファイルを読む部分、
+// adt2extn.pas の _a2b_saver / _a2w_saver)
+//
+// 読み込みは temp_songdata (呼び出し側で曲データの複製を入れておく) の楽器名・楽器データなどを、ファイルの内容で置き換える。
+// 楽器名の先頭 9 文字 (印と番号) は temp_songdata のものを残す。
+bool LoadA2bBank(const std::wstring& path, FixedSongData& temp_songdata, std::wstring& error);
+bool LoadA2wBank(const std::wstring& path, FixedSongData& temp_songdata, std::wstring& error);
+
+// 保存の際、オリジナルと同じく楽器名の未使用部分の一部を 0 で埋める
+SaveResult SaveA2b(const std::wstring& path, FixedSongData& songdata);
+SaveResult SaveA2w(const std::wstring& path, FixedSongData& songdata, const SaveProgress* progress = nullptr);
+
 } // namespace a2ins

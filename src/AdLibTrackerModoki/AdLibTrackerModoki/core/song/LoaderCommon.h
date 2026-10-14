@@ -142,6 +142,25 @@ void pinsertHead(PString<N>& str, const std::string& prefix)
     str.assign(prefix + str.str());
 }
 
+// FillChar(str[SUCC(Length(str))], count, 0) (count が負なら何もしない)
+template <size_t N>
+void fill_after_length(PString<N>& str, int count)
+{
+    if (count > 0) std::memset(str.data + str.len, 0, std::min<size_t>(count, N - str.len));
+}
+
+// Delete(str, 1, count)。後ろに残った文字は消さない (オリジナルと同じ)
+template <size_t N>
+void delete_head(PString<N>& str, uint8_t count)
+{
+    if (count >= str.len) {
+        str.len = 0;
+        return;
+    }
+    std::memmove(str.data, str.data + count, str.len - count);
+    str.len = static_cast<uint8_t>(str.len - count);
+}
+
 // Lower(NameOnly(path)) (ファイル名を CP437 で表せない文字は '_' にする)
 std::string lower_name_only(const std::wstring& path);
 

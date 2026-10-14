@@ -1681,44 +1681,6 @@ void FILE_open(const wchar_t* filter = nullptr)
     if (ok) load_song(buf);
 }
 
-// 楽器窓の F3: 楽器ファイルを current_inst へ読み込む (FILE_open の mpos = 2 の場合)
-void FILE_open_instrument()
-{
-    WCHAR buf[MAX_PATH] = L"";
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_hwnd;
-    ofn.lpstrFilter = L"AdLib Tracker II 楽器 (*.a2i;*.a2f)\0*.a2i;*.a2f\0";
-    ofn.lpstrFile = buf;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-    const bool ok = GetOpenFileNameW(&ofn) != FALSE;
-    keyboard_init();
-    if (!ok) return;
-
-    instdata_source = buf;
-    std::wstring error;
-    bool loaded;
-    {
-        PlayerLock lock;
-        P().nul_volume_bars();
-        loaded = a2ins::LoadInstrumentFile(buf, songdata(), current_inst, error);
-        if (loaded) module_archived = false;
-    }
-    if (!loaded) {
-        MessageBoxW(g_hwnd, error.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
-        keyboard_init();
-    }
-
-    PlayerLock lock;
-    force_scrollbars = true;
-    PATTERN_ORDER_page_refresh(pattord_page);
-    PATTERN_page_refresh(pattern_page);
-    force_scrollbars = false;
-    std::fill(std::begin(P().ai_table), std::end(P().ai_table), uint8_t(0));
-    no_status_refresh = false;
-}
-
 // ---------------------------------------------------------------------------
 // ダイアログ・進捗表示の補助 (txtscrio.pas / adt2unit.pas / adt2extn.pas)
 // ---------------------------------------------------------------------------
@@ -1926,6 +1888,13 @@ std::wstring replace_ext(const std::wstring& path, const wchar_t* ext)
     return p.wstring();
 }
 
+// 楽器ファイル (保存先の初期値に instdata_source を使う) の拡張子か
+bool is_instrument_ext(const wchar_t* ext)
+{
+    return std::wcscmp(ext, L"a2i") == 0 || std::wcscmp(ext, L"a2f") == 0 || std::wcscmp(ext, L"a2b") == 0 ||
+           std::wcscmp(ext, L"a2w") == 0;
+}
+
 // 保存先をコモンダイアログで選ぶ (本クローン版の独自 UI)。キャンセルされたら空を返す。
 std::wstring choose_save_path(const wchar_t* ext)
 {
@@ -1943,6 +1912,12 @@ std::wstring choose_save_path(const wchar_t* ext)
     } else if (std::wcscmp(ext, L"a2f") == 0) {
         filter = L"AdLib Tracker II FM マクロ付き楽器 (*.a2f)";
         title = L"楽器を A2F 形式で保存";
+    } else if (std::wcscmp(ext, L"a2b") == 0) {
+        filter = L"AdLib Tracker II 楽器バンク (*.a2b)";
+        title = L"楽器バンクを A2B 形式で保存";
+    } else if (std::wcscmp(ext, L"a2w") == 0) {
+        filter = L"AdLib Tracker II マクロ付き楽器バンク (*.a2w)";
+        title = L"楽器バンクを A2W 形式で保存";
     } else {
         filter = L"AdLib Tracker II パターン (*.a2p)";
         title = L"パターンを A2P 形式で保存";
@@ -1954,7 +1929,7 @@ std::wstring choose_save_path(const wchar_t* ext)
     filter += L'\0';
 
     // 楽器ファイルは前回の楽器ファイル、それ以外は曲のファイル名を初期値にする (オリジナルと同じ)
-    const bool is_instrument = std::wcscmp(ext, L"a2i") == 0 || std::wcscmp(ext, L"a2f") == 0;
+    const bool is_instrument = is_instrument_ext(ext);
     const std::wstring& source = is_instrument ? instdata_source : songdata_source;
     WCHAR buf[MAX_PATH] = L"";
     std::wstring dir;
@@ -2099,14 +2074,94 @@ void save_instrument(const std::wstring& path, const wchar_t* ext)
     else if (result == SaveResult::DiskFull) Dialog("ERROR WRiTiNG DATA - DiSK FULL?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
 }
 
+// 楽器バンク (A2B / A2W) の保存 (_a2b_saver / _a2w_saver)。保存しても曲の保存状態は変わらない。
+// 保存中も演奏を続けられるよう曲データの複製を保存し、保存の際に書き換えた楽器名を曲データへ書き戻す。
+void save_instrument_bank(const std::wstring& path, const wchar_t* ext)
+{
+    const bool is_a2b = std::wcscmp(ext, L"a2b") == 0;
+    const std::string saver_title = is_a2b ? " A2B SAVER " : " A2W SAVER ";
+
+    auto copy = std::make_unique<FixedSongData>();
+    {
+        PlayerLock lock;
+        *copy = songdata();
+    }
+
+    uint8_t xstart = 0, ystart = 0;
+    bool window_shown = false;
+    bool new_block = true;
+    SaveProgress progress;
+    progress.begin = [&](uint8_t num_steps) {
+        ScreenMemCopy(screen_ptr, screen_backup);
+        centered_frame_vdest = screen_ptr;
+        HideCursor();
+        centered_frame(xstart, ystart, 43, 3, " A2W FiLE ", dialog_background + dialog_border,
+                       dialog_background + dialog_title, frame_double);
+        window_shown = true;
+        progress_xstart = B(xstart + 2);
+        progress_ystart = B(ystart + 2);
+        progress_step = 1;
+        progress_num_steps = num_steps;
+        ShowCStr(screen_ptr, B(xstart + 2), B(ystart + 1), "COMPRESSiNG iNSTRUMENT BANK DATA...",
+                 dialog_background + dialog_text, dialog_background + dialog_hi_text);
+        show_progress(DWORD_NULL);
+    };
+    progress.step = [&]() {
+        ++progress_step;
+        new_block = true;
+    };
+    progress.value = [&](uint32_t done, uint32_t total) {
+        if (new_block) {
+            progress_old_value = BYTE_NULL;
+            new_block = false;
+        }
+        progress_value = total;
+        show_progress(done, 3);
+    };
+
+    const auto restore = [&]() {
+        if (!window_shown) return;
+        move_to_screen_data = screen_backup;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + 43 + 2 + 1);
+        move_to_screen_area[4] = B(ystart + 3 + 1);
+        move2screen();
+        progress_num_steps = 0;
+        progress_value = 0;
+    };
+
+    // A2B は進捗を表示しない (progress_num_steps := 0)
+    const SaveResult result = is_a2b ? a2ins::SaveA2b(path, *copy) : a2ins::SaveA2w(path, *copy, &progress);
+    if (result == SaveResult::Ok && window_shown) {
+        // 100% の進捗を少しの間見せる
+        progress_num_steps = 1;
+        progress_step = 1;
+        progress_value = 1;
+        progress_old_value = BYTE_NULL;
+        show_progress(1);
+        Sleep(200);
+    }
+    restore();
+
+    {
+        PlayerLock lock;
+        std::memcpy(songdata().instr_names, copy->instr_names, sizeof(copy->instr_names));
+    }
+
+    if (result == SaveResult::WriteError) Dialog("ERROR WRiTiNG DATA - DiSK ERROR?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
+    else if (result == SaveResult::DiskFull) Dialog("ERROR WRiTiNG DATA - DiSK FULL?$SAViNG STOPPED$", "~O~KAY$", saver_title, 1);
+}
+
 // F2 / Ctrl+F2 / Alt+F2 (quick: Shift+F2 は前回のファイル名でそのまま保存する)
 void FILE_save(const wchar_t* ext, bool quick)
 {
-    if (std::wcscmp(ext, L"a2i") == 0 || std::wcscmp(ext, L"a2f") == 0) {
+    if (is_instrument_ext(ext)) {
         const std::wstring path = choose_save_path(ext);
         if (path.empty()) return;
         instdata_source = path;
-        save_instrument(path, ext);
+        if (std::wcscmp(ext, L"a2b") == 0 || std::wcscmp(ext, L"a2w") == 0) save_instrument_bank(path, ext);
+        else save_instrument(path, ext);
         return;
     }
 
@@ -5207,6 +5262,7 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 
 #include "InstEdit.inl"
 #include "MacroEdit.inl"
+#include "BankLoad.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。

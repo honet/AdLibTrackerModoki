@@ -910,7 +910,7 @@ void instr_control_proc()
 }
 
 void FILE_save(const wchar_t* ext, bool quick);
-void FILE_open_instrument();
+void FILE_open_instrument(bool load_bank_possible, bool quick = false);
 void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
 
 // ---------------------------------------------------------------------------
@@ -2527,7 +2527,7 @@ void INSTRUMENT_CONTROL_edit()
                 PlayerLock lock;
                 std::fill(std::begin(_operator_enabled), std::end(_operator_enabled), true);
             }
-            FILE_open_instrument();
+            FILE_open_instrument(false);   // load bank is not possible
             PlayerLock lock;
             reset_instrument_preview();
             break;
@@ -2726,13 +2726,17 @@ uint8_t INSTRUMENT_CONTROL()
             FILE_save(L"a2f", false);
             continue;
         }
-        if (key == kAltF2 || key == kCtrlF2) {
-            // A2B / A2W の保存 (6e-4) は未実装
+        if (key == kAltF2) {
+            FILE_save(L"a2b", false);
+            continue;
+        }
+        if (key == kCtrlF2) {
+            FILE_save(L"a2w", false);
             continue;
         }
         if (key == kF3 || key == kShF3 || key == kCtrlL) {
-            // Shift+F3 (前回のファイルをそのまま読み込む) も、本クローン版ではファイルを選ばせる
-            FILE_open_instrument();
+            // Shift+F3 は前回の楽器ファイルをそのまま読み込む。バンクはまとめて読み込める
+            FILE_open_instrument(true, key == kShF3);
             PlayerLock lock;
             reset_instrument_preview();
             update_4op_flag_marks();

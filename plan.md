@@ -4,8 +4,8 @@
 
 ## 現在の状況
 
-- フェーズ6e-3b (マクロエディタの試聴) が完了。
-- 次の作業は 6e-4 (A2B / A2W とマクロブラウザ)。
+- フェーズ6e-4a (A2B / A2W の保存と A2B の読み込み) が完了。
+- 次の作業は 6e-4b (A2W の読み込みとマクロブラウザ)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -164,6 +164,21 @@
   鍵盤を押す手順はクローン版だけで行い、保存結果の比較から外した (音を鳴らしても曲データは変わらない)
 - 本家の確認で鍵盤を押し続けるときは、PostMessage の WM_KEYUP が SDL に届かないため keybd_event で送る
 
+### フェーズ6e-4a: A2B / A2W の保存と A2B の読み込み
+- 楽器バンクの読み書き (core/song/InstrumentFile): SaveA2b / SaveA2w (_a2b_saver / _a2w_saver)、
+  LoadA2bBank (形式 1〜10。1〜8 は import_old_instruments で取り込む)、LoadA2wBank (形式 1〜3。一覧の窓は 6e-4b)
+- 楽器窓の Alt+F2 (A2B) / Ctrl+F2 (A2W)。A2W は進捗の窓 (COMPRESSiNG iNSTRUMENT BANK DATA...) を出す
+- a2b_file_loader を移植 (ui/BankLoad.inl): バンクの一覧 (画面モード 0/3/4/5 は 74 桁、それ以外は 104 桁)、4OP の組の印、
+  一覧の位置の記憶、Enter (4OP の組は強制) / Shift+Enter (取り込む先も組のときだけ組で) / Ctrl+Enter (楽器窓からはバンク全体)
+- 一覧で鍵盤を押すと試聴する (test_instrument_alt。6e-4b の窓で使う場合の処理も含めて移植)
+- 楽器窓・楽器エディタの F3 で A2B も選べるようにし、楽器窓の Shift+F3 (前回の楽器ファイルをそのまま読み込む) を追加。
+  本家のファイル選択画面の Shift+Enter (一覧を出さずにバンク全体を読み込む) はコモンダイアログでは区別できないため、
+  常に一覧を出す (Ctrl+Enter で同じことができる)
+- 本家と同じキー操作で、zap.rad / square.a2m から保存した A2B / A2W がバイト単位で一致。square.a2m で 4OP の組を作って保存した
+  A2B と、それを Enter / Shift+Enter / Ctrl+Enter で取り込んで保存した A2M は、ins_4op_flags の未使用部分を除いて一致。画面も一致
+- 確認用の道具は `data/tools/` に置いた (キー操作の uitest.ps1、手順を本家用とクローン版用に分ける mkscript.py、
+  展開して比べる a2diff.cpp)。スクラッチパッドは読み取りが禁止されているため使えない
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -175,7 +190,8 @@
 ## 今後の計画
 
 ### フェーズ6e: 楽器とマクロ
-- 6e-4 (次の作業): A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)、マクロエディタの F2 (A2W)・Ctrl+F2・F3・Ctrl+M
+- 6e-4b (次の作業): A2W の読み込み (a2w_file_loader の楽器マクロの窓・アルペジオ / ビブラートのマクロの窓)、
+  MACRO_BROWSER (Ctrl+M)、マクロエディタの F2 (A2W)・Ctrl+F2・F3・Ctrl+M。ファイルを開く画面で A2W も選べるようにする
 - 6e-5: BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
 
 ### フェーズ6f: その他の編集機能
