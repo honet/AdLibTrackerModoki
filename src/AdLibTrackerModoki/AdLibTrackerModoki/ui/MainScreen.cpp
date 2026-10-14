@@ -1625,6 +1625,8 @@ uint8_t _patts_marked()
     return result;
 }
 
+void reset_positions_on_load();
+
 void load_song(const std::wstring& path)
 {
     fade_out_playback(false);
@@ -1645,6 +1647,7 @@ void load_song(const std::wstring& path)
 
     PlayerLock lock;
     A2Player& p = P();
+    reset_positions_on_load();
     // A2P はパターンを読み込むだけなので、表示位置と曲の保存状態はそのまま
     if (!is_pattern) {
         songdata_source = path;
@@ -3391,6 +3394,7 @@ void PATTERN_LIST(uint8_t page);
 uint8_t INSTRUMENT_CONTROL();
 void INSTRUMENT_CONTROL_edit();
 void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
+void MACRO_BROWSER(bool instrBrowser, bool updateCurInstr);
 
 uint16_t PATTERN_trace()
 {
@@ -3476,6 +3480,10 @@ uint16_t PATTERN_trace()
             } else if (fkey2 == kCtrlQ || fkey2 == kCtrlG) {
                 pause_debugging();
                 MACRO_EDITOR(current_inst, fkey2 == kCtrlG);
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlM) {
+                pause_debugging();
+                MACRO_BROWSER(true, true);
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtENTR) {
                 jump_to_next_order();
@@ -5263,6 +5271,7 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 #include "InstEdit.inl"
 #include "MacroEdit.inl"
 #include "BankLoad.inl"
+#include "A2wLoad.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。
@@ -6056,11 +6065,16 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
             }
 
+            case kCtrlM: {
+                PlayerUnlock unlock;
+                MACRO_BROWSER(true, true);
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlO:
             case kCtrlH:
-            case kCtrlM:
             case kF1:
                 // 各種画面 (未実装)
                 break;
@@ -7034,13 +7048,18 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
+            case kCtrlM: {
+                PlayerUnlock unlock;
+                MACRO_BROWSER(true, true);
+                break;
+            }
+
             case kCtrlT:
             case kCtrlR:
             case kCtrlB:
             case kCtrlO:
             case kCtrlF:
             case kCtrlH:
-            case kCtrlM:
             case kCtrlX:
             case kF1:
                 // 各種画面 (未実装)

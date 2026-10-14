@@ -1,11 +1,11 @@
 # AdLibTrackerModoki 開発計画
 
-最終更新: 2026-10-13
+最終更新: 2026-10-14
 
 ## 現在の状況
 
-- フェーズ6e-4a (A2B / A2W の保存と A2B の読み込み) が完了。
-- 次の作業は 6e-4b (A2W の読み込みとマクロブラウザ)。
+- フェーズ6e-4b (A2W の読み込みとマクロブラウザ) が完了。
+- 次の作業は 6e-5 (BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -179,6 +179,23 @@
 - 確認用の道具は `data/tools/` に置いた (キー操作の uitest.ps1、手順を本家用とクローン版用に分ける mkscript.py、
   展開して比べる a2diff.cpp)。スクラッチパッドは読み取りが禁止されているため使えない
 
+### フェーズ6e-4b: A2W の読み込みとマクロブラウザ
+- a2w_file_loader を移植 (ui/A2wLoad.inl)
+  - 楽器マクロの窓: 楽器の一覧 (画面モード 0/3/4/5 は 72 桁、1 は 102 桁、2 は 121 桁) と、選んでいる楽器の FM レジスタのマクロ
+    (Shift+矢印・PgUp/PgDn・Home/End、Ctrl+Home/End で表の位置、グラフ)。Enter (4OP の組は強制) / Shift+Enter / Ctrl+Enter (バンク全体)。
+    使っているアルペジオ / ビブラートの表は曲の空いている表へ写す (空きがなければ RELATED ... WAS NOT LOADED)
+  - アルペジオ / ビブラートのマクロの窓: 表の一覧とグラフ、Shift / Ctrl+Space で表を選ぶ、Shift / Ctrl+矢印などで表の中の位置。
+    楽器マクロの窓から TAB で開き、Enter で現在の楽器に表を付ける
+  - 一覧で鍵盤を押すと試聴する (test_instrument_alt)。窓の位置を bank_position に覚える
+- MACRO_BROWSER (Ctrl+M): パターン窓・オーダー窓・楽器窓・マクロエディタから。曲のデータを A2W と同じ窓で見る
+- マクロエディタの F2 (Ctrl+G 側は A2W)・Ctrl+F2 (A2W)・F3 (アルペジオ / ビブラートの位置なら A2W だけ)・Ctrl+M
+- 楽器を読み込むコモンダイアログで A2W も選べるようにした
+- 曲を読み込んだときに、現在の楽器・マクロエディタの位置・bank_position の各画面の位置などを本家と同じく戻す
+- 6e-4a の A2B の一覧で、楽器が 253 個以上あると Menu の項目数が 256 を超えて桁あふれし、止まっていたのを直した
+- 本家と同じキー操作で、nightdrv.a2m に $at2demo.a2w から楽器を取り込んだ A2M (楽器窓の F3 / Shift+F3、Ctrl+Enter)、
+  Ctrl+M で表を付けた A2M、マクロエディタから保存した A2W 2 つと F3 / Ctrl+M を使った A2M がバイト単位で一致。画面も一致
+  (画面モード 2。画面モード 0 はクローン版だけで確認)
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -190,9 +207,7 @@
 ## 今後の計画
 
 ### フェーズ6e: 楽器とマクロ
-- 6e-4b (次の作業): A2W の読み込み (a2w_file_loader の楽器マクロの窓・アルペジオ / ビブラートのマクロの窓)、
-  MACRO_BROWSER (Ctrl+M)、マクロエディタの F2 (A2W)・Ctrl+F2・F3・Ctrl+M。ファイルを開く画面で A2W も選べるようにする
-- 6e-5: BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
+- 6e-5 (次の作業): BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
 
 ### フェーズ6f: その他の編集機能
 - Ctrl+T (移調)、Ctrl+R (楽器の置き換え)、Ctrl+O (オクターブ設定)

@@ -32,6 +32,7 @@
 | `pattern_order` を 128 以上の添字で読む (後続のフィールドが見える) | adt2unit.pas、S3M ローダー → core/player/A2Player.h、core/song/S3mLoader.cpp | 再現 |
 | マクロ試聴でパーカッション楽器を鳴らすと `_m_chan_handle[1..18]` の [19], [20] に書き込み、`_4op_main_chan[1..6]` も範囲外 (16..20) で読む | adt2ext4.pas `_macro_preview_body` → ui/MacroEdit.inl | 回避 (配列を広げる。`_4op_main_chan` は範囲内のときだけ引く) |
 | 楽器の試聴で `_4op_main_chan` を範囲外で読む | 楽器の試聴 → ui/InstEdit.inl | 回避 |
+| バンクの楽器の試聴で、アルペジオ / ビブラートの表を `macro_table` の 1 件分 (アルペジオ + ビブラート) の大きさで写す。アルペジオなら同じ番号のビブラート、ビブラートなら次の番号のアルペジオまで書き、255 番のビブラートでは `macro_table` の後ろ (`pattern_order` など) にはみ出す (試聴の後に戻すのは `macro_table` だけ) | iloadins.inc `test_instrument_alt` → ui/BankLoad.inl | 再現 (曲データの同じ位置へ写す) |
 | 楽器窓の鳴っている楽器の印で `iflag[1..18]` を 19, 20 で読む | instedit.inc → ui/InstEdit.inl | 回避 (0 とする) |
 | 楽器エディタの表示で [1..23] の配列を 24 行目まで表示する (直後の配列の文字列が出るが、下の枠で隠れる) | instedit.inc → ui/InstEdit.inl | 再現 |
 | 楽器エディタで panning が 3 以上のとき `ins_pan_str1` を範囲外で読む | instedit.inc → ui/InstEdit.inl | 回避 (表示しない) |
@@ -81,6 +82,11 @@
 | マクロエディタの試聴中に楽器を切り替えると (Ctrl+[ / ]、Alt+0〜4)、エディタで変えたアルペジオ / ビブラートの表の番号が、エディタを開き直した時点の値に戻る | adt2ext4.pas `_macro_preview_init` → ui/MacroEdit.inl | 再現 |
 | マクロエディタを閉じるときの描き直しの範囲で、高さに `window_area_inc_y` ではなく `window_area_inc_x` を足している | adt2ext4.pas `MACRO_EDITOR` → ui/MacroEdit.inl | 再現 |
 | マクロ試聴中のオクターブ表示を 30 行目に固定で書くため、画面モード 2 ではパターン窓の中に出る | adt2ext4.pas `MACRO_EDITOR` → ui/MacroEdit.inl | 再現 |
+| バンクの楽器の試聴で、楽器が空のときは抜けるが、その前に書き換えた曲の `macro_table` と `instr_macros` を戻さない | iloadins.inc `test_instrument_alt` → ui/BankLoad.inl | 再現 |
+| A2W のアルペジオ / ビブラートの窓で、A2W ファイルから開いたとき (マクロエディタの F3) も Enter で取り込まずに閉じる。曲のデータを見るだけのとき (マクロエディタの Ctrl+M) に Enter を ESC に変える処理が、楽器マクロの窓から TAB で開いたとき以外のすべてに効いている (本家で確認) | adt2ext5.pas `a2w_file_loader` → ui/A2wLoad.inl | 再現 |
+| A2W から楽器や表を取り込む先の表を探すとき、空きか同じ内容の表がなければ長さ 0 の表を後ろから探すが、曲ではなく読み込んだバンク (temp_songdata) の表の長さを見ている | adt2ext5.pas `get_free_arpeggio_table_idx` / `get_free_vibrato_table_idx` → ui/A2wLoad.inl | 再現 |
+| マクロエディタのアルペジオ / ビブラートの位置で F3 を押すと `_arp_vib_loader` が TRUE になり、A2W を読み込んだときにだけ FALSE に戻る。ファイル選択を取り消すか A2W 以外を読み込むと TRUE のまま残り、次に楽器窓などの F3 で A2W を開くとアルペジオ / ビブラートの窓が出る | adt2ext4.pas `MACRO_EDITOR`、adt2extn.pas `FILE_open` → ui/MacroEdit.inl、ui/BankLoad.inl | 再現 |
+| A2W の楽器マクロの窓で、FM レジスタ表の列がパーカッションで無効かどうかを、表示している楽器ではなく現在の楽器 (current_inst) で判定する | adt2ext5.pas `_dis_fmreg_col` → ui/A2wLoad.inl | 再現 |
 | SDL 版の `get_chanpos` は内側のループを 1 回目で抜けるため、4OP でない試聴は 1 チャンネルでしか鳴らない (和音にならない) | adt2unit.pas `get_chanpos` → ui/InstEdit.inl | 再現 |
 
 ## 入力

@@ -136,6 +136,14 @@ uint8_t arpvib_arpeggio_table = 1;
 uint8_t arpvib_vibrato_table = 1;
 bool _arp_vib_mode = false;
 
+// マクロエディタの F3 で、A2W のアルペジオ / ビブラートのマクロを読み込むか (adt2ext4.pas)。
+// オリジナルは A2W を読み込んだときにだけ FALSE に戻す
+bool _arp_vib_loader = false;
+
+// アルペジオ / ビブラートのマクロの窓で、表を選んでいるか (adt2ext5.pas)
+bool arp_tab_selected = false;
+bool vib_tab_selected = false;
+
 namespace macroedit
 {
     constexpr uint16_t EMPTY_FIELD = 0xffff;
@@ -236,10 +244,9 @@ namespace macroedit
     uint16_t arpeggio_def_attr(uint8_t page) { return def_attr(arp(), page); }
     uint16_t vibrato_def_attr(uint8_t page) { return def_attr(vib(), page); }
 
-    // FM レジスタ表の 1 行の表示文字列
-    std::string _fmreg_str(uint8_t page)
+    // FM レジスタ表の 1 行 d の表示文字列 (A2W の一覧でも使う)
+    std::string fmreg_def_str(const RegisterTableDef& d)
     {
-        const RegisterTableDef& d = im().data[page == 0 ? 0 : page - 1];
         const FmInstData& f = d.fm_data;
         std::string s;
         const auto hx = [](int v) { return std::string(1, _hex[v & 15]); };
@@ -265,6 +272,9 @@ namespace macroedit
         s += std::string(1, _panning[d.panning <= 2 ? d.panning : 0]) + " " + byte2hex(d.duration);
         return s;
     }
+
+    // FM レジスタ表の 1 行の表示文字列
+    std::string _fmreg_str(uint8_t page) { return fmreg_def_str(im().data[page == 0 ? 0 : page - 1]); }
 
     // 列 fmreg_col (1..35) が無効 (Ctrl+BkSpc など) か
     bool _dis_fmreg_col(uint8_t fmreg_col)
@@ -494,10 +504,9 @@ namespace macroedit
         return std::string(result.rbegin(), result.rend());
     }
 
-    // FM レジスタ表の行 page、列 hpos の値
-    int _fmreg_param(uint8_t page, uint8_t hpos)
+    // FM レジスタ表の行の表示文字列 s から、列 hpos の値を読む (A2W の一覧でも使う)
+    int fmreg_str_param(const std::string& s, uint8_t hpos)
     {
-        const std::string s = _fmreg_str(page);
         const auto at = [&s](int i) { return Copy(s, i, 1); };
         int result = 0;
         switch (hpos) {
@@ -526,6 +535,9 @@ namespace macroedit
         }
         return result;
     }
+
+    // FM レジスタ表の行 page、列 hpos の値
+    int _fmreg_param(uint8_t page, uint8_t hpos) { return fmreg_str_param(_fmreg_str(page), hpos); }
 
     void refresh(uint8_t refresh_flag)
     {
@@ -2961,16 +2973,53 @@ void MACRO_EDITOR(uint8_t instr_, bool arp_vib_mode_)
         }
 
         if (k == kF2 || k == kCtrlS) {
-            if (!arp_vib_mode) {
-                PlayerUnlock unlock;
-                FILE_save(L"a2f", false);
-            }
-            // A2W の保存 (Ctrl+G の F2) は 6e-4 で実装する
+            PlayerUnlock unlock;
+            FILE_save(!arp_vib_mode ? L"a2f" : L"a2w", false);
             continue;
         }
 
-        if (k == kCtrlF2 || k == kF3 || k == kCtrlL || k == kCtrlM || k == kCtrlO || k == kF1) {
-            // A2W の保存 (Ctrl+F2)・読み込み (F3)・マクロブラウザ (Ctrl+M) は 6e-4、
+        if (k == kCtrlF2) {
+            if (!arp_vib_mode) {
+                PlayerUnlock unlock;
+                FILE_save(L"a2w", false);
+            }
+            continue;
+        }
+
+        if (k == kF3 || k == kCtrlL) {
+            // FM レジスタのマクロの位置なら楽器ファイル・楽器バンク、アルペジオ / ビブラートの位置なら A2W だけを選ぶ
+            // (BNK などの取り込みは 6e-5)
+            _arp_vib_loader = !(pos < 8);
+            if (_arp_vib_loader) {
+                arp_tab_selected = in_range(pos, 8, 13);
+                vib_tab_selected = in_range(pos, 14, 20);
+                if (!arp_vib_mode) {
+                    arpvib_arpeggio_table = ptr_arpeggio_table;
+                    arpvib_vibrato_table = ptr_vibrato_table;
+                }
+            } else {
+                arp_tab_selected = ptr_arpeggio_table != 0;
+                vib_tab_selected = ptr_vibrato_table != 0;
+                if (!(arp_tab_selected || vib_tab_selected)) {
+                    arp_tab_selected = true;
+                    vib_tab_selected = true;
+                }
+            }
+            {
+                PlayerUnlock unlock;
+                FILE_open_instrument(false, false, _arp_vib_loader);   // load bank is not possible
+            }
+            update_instr_data(instrum_page);
+            continue;
+        }
+
+        if (k == kCtrlM) {
+            PlayerUnlock unlock;
+            MACRO_BROWSER(pos < 8, false);
+            continue;
+        }
+
+        if (k == kCtrlO || k == kF1) {
             // オクターブ設定 (Ctrl+O)・ヘルプ (F1) は 6f で実装する。開き直す
             continue;
         }

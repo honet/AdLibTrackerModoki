@@ -910,8 +910,9 @@ void instr_control_proc()
 }
 
 void FILE_save(const wchar_t* ext, bool quick);
-void FILE_open_instrument(bool load_bank_possible, bool quick = false);
+void FILE_open_instrument(bool load_bank_possible, bool quick = false, bool a2w_only = false);
 void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
+void MACRO_BROWSER(bool instrBrowser, bool updateCurInstr);
 
 // ---------------------------------------------------------------------------
 // 楽器エディタ (instedit.inc の INSTRUMENT_CONTROL_edit とその補助処理)
@@ -2711,7 +2712,7 @@ uint8_t INSTRUMENT_CONTROL()
             continue;
         }
         if (key == kCtrlM) {
-            // マクロブラウザ (6e-4) は未実装
+            MACRO_BROWSER(true, true);
             continue;
         }
         if (key == kCtrlO || key == kF1) {

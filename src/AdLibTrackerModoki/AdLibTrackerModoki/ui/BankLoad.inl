@@ -35,10 +35,6 @@ const std::string a2b_header_hires_str[3] = {
     std::string(104, '\xCD'),
 };
 
-// アルペジオ / ビブラートのマクロの窓で、表を選んでいるか (adt2ext4.pas)
-bool arp_tab_selected = false;
-bool vib_tab_selected = false;
-
 // バンクの 4OP の組の印 (_4op_flag_column[1..255])
 char _4op_flag_column[256];
 uint8_t _a2b_lister_count = 0;
@@ -447,21 +443,27 @@ bool select_4op_destination(uint8_t index, bool alternate)
 }
 
 bool a2b_file_loader(bool bankSelector, bool loadBankPossible);
+uint8_t a2w_file_loader(bool loadFromFile, bool loadMacros, bool bankSelector, bool loadBankPossible, bool updateCurInstr);
 
-// 楽器窓・楽器エディタの F3: 楽器ファイル・楽器バンクを読み込む (FILE_open の mpos = 2 の場合)。
+// 楽器窓・楽器エディタ・マクロエディタの F3: 楽器ファイル・楽器バンクを読み込む (FILE_open の mpos = 2 の場合)。
 // 本クローン版はコモンダイアログで選ぶ。quick (楽器窓の Shift+F3) なら前回の楽器ファイルをそのまま読み込む。
+// a2w_only (マクロエディタのアルペジオ / ビブラートの位置) なら A2W だけを選ぶ。
 // オリジナルはファイル選択画面で Shift+Enter を押すと、一覧を出さずにバンク全体を読み込む (確認のダイアログ付き)。
 // コモンダイアログでは区別できないため、本クローン版は常に一覧を出す (load_bank_possible なら Ctrl+Enter で全体を読み込める)。
-void FILE_open_instrument(bool load_bank_possible, bool quick)
+void FILE_open_instrument(bool load_bank_possible, bool quick, bool a2w_only)
 {
     if (!quick) {
         WCHAR buf[MAX_PATH] = L"";
         OPENFILENAMEW ofn = {};
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = g_hwnd;
-        ofn.lpstrFilter = L"AdLib Tracker II 楽器・楽器バンク (*.a2i;*.a2f;*.a2b)\0*.a2i;*.a2f;*.a2b\0"
-                          L"AdLib Tracker II 楽器 (*.a2i;*.a2f)\0*.a2i;*.a2f\0"
-                          L"AdLib Tracker II 楽器バンク (*.a2b)\0*.a2b\0";
+        if (!a2w_only) {
+            ofn.lpstrFilter = L"AdLib Tracker II 楽器・楽器バンク (*.a2i;*.a2f;*.a2b;*.a2w)\0*.a2i;*.a2f;*.a2b;*.a2w\0"
+                              L"AdLib Tracker II 楽器 (*.a2i;*.a2f)\0*.a2i;*.a2f\0"
+                              L"AdLib Tracker II 楽器バンク (*.a2b;*.a2w)\0*.a2b;*.a2w\0";
+        } else {
+            ofn.lpstrFilter = L"AdLib Tracker II マクロ付き楽器バンク (*.a2w)\0*.a2w\0";
+        }
         ofn.lpstrFile = buf;
         ofn.nMaxFile = MAX_PATH;
         ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -493,6 +495,13 @@ void FILE_open_instrument(bool load_bank_possible, bool quick)
         }
     } else if (ext == "a2b") {
         loaded = a2b_file_loader(true, load_bank_possible);   // w/ bank selector
+        if (loaded) {
+            PlayerLock lock;
+            filter_loaded_names(songdata());
+        }
+    } else if (ext == "a2w") {
+        loaded = a2w_file_loader(true, _arp_vib_loader, true, load_bank_possible, false) != BYTE_NULL;   // w/ bank selector
+        _arp_vib_loader = false;
         if (loaded) {
             PlayerLock lock;
             filter_loaded_names(songdata());
@@ -602,9 +611,9 @@ bool a2b_file_loader(bool bankSelector, bool loadBankPossible)
     uint16_t index = 0;
     if (!_force_program_quit) {
         if (program_screen_mode == 0 || program_screen_mode == 3 || program_screen_mode == 4 || program_screen_mode == 5)
-            index = Menu(a2b_queue, 1, 1, spos, 74, ysize, B(nm_valid + 3), title);
+            index = Menu(a2b_queue, 1, 1, spos, 74, ysize, static_cast<uint16_t>(nm_valid + 3), title);
         else
-            index = Menu(a2b_queue_more, 1, 1, spos, 104, 30, B(nm_valid + 3), title);
+            index = Menu(a2b_queue_more, 1, 1, spos, 104, 30, static_cast<uint16_t>(nm_valid + 3), title);
     }
 
     add_bank_position(bank_name, nm_valid, index + 3);
