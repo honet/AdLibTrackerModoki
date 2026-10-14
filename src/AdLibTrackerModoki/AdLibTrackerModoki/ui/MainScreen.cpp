@@ -127,6 +127,8 @@ uint8_t _pattedit_lastpos = 0;
 const char* const* patt_win = patt_win_tracks[0];   // patt_win[1..5] は patt_win[0..4]
 
 bool blink_flag = false;
+// adt2unit.pas: マクロの試聴中の PREViEW / LOOP の表示 (試聴中だけ設定する)
+void (*macro_preview_indic_proc)(uint8_t state) = nullptr;
 int32_t blink_ticks = 0;
 bool _NRECM_blink_flag = false;
 int32_t _NRECM_blink_ticks = 0;
@@ -1507,10 +1509,12 @@ void realtime_gfx_poll_proc()
         if (!p.debugging) status_layout[isPlaying][8] = '\x10';
         else status_layout[isPlaying][8] = '\x09';
         status_layout[isPaused][7] = '\x08';
+        if (macro_preview_indic_proc) macro_preview_indic_proc(1);
     } else {
         status_layout[isPlaying][8] = ' ';
         status_layout[isPaused][7] = ' ';
         status_layout[isStopped][8] = ' ';
+        if (macro_preview_indic_proc) macro_preview_indic_proc(2);
     }
 
     decay_bars_refresh();

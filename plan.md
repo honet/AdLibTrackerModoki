@@ -1,11 +1,11 @@
 # AdLibTrackerModoki 開発計画
 
-最終更新: 2026-10-12
+最終更新: 2026-10-13
 
 ## 現在の状況
 
-- フェーズ6e-3a (マクロエディタの画面と編集) が完了。
-- 次の作業は 6e-3b (マクロの試聴)。
+- フェーズ6e-3b (マクロエディタの試聴) が完了。
+- 次の作業は 6e-4 (A2B / A2W とマクロブラウザ)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -150,6 +150,20 @@
   本家の adtrack2.ini を一時的に sdl_screen_mode=0 にして作成) がバイト単位で一致。両モードで画面も一致
 - マクロエディタの F2 (Ctrl+G 側、A2W)・Ctrl+F2・F3・Ctrl+M・Ctrl+O・F1 は、まだエディタを開き直すだけ
 
+### フェーズ6e-3b: マクロエディタの試聴
+- _macro_preview_init / _macro_preview_body と Space の処理を移植 (ui/MacroEdit.inl)
+  - Space で試聴の状態に入り (Ctrl+Space はキーオフのループ付き)、Space か ESC で抜ける (ESC はエディタも閉じる)
+  - 試聴中: MIDI ボードの鍵盤でマクロを動かしながら鳴らす、Ctrl+Space (ループの切り替え)、F7、
+    Ctrl+[ / ] (前後の楽器)、Ctrl+Shift+[ / ] (マクロの速度)、Alt+0〜4
+  - PREViEW / LOOP の点滅表示 (macro_preview_indic_proc を realtime_gfx_poll_proc から呼ぶ)。
+    オクターブの数字はオリジナルのまま 30 行目に書く (画面モード 2 ではパターン窓の中に出る)
+- 本家と同じキー操作で zap.rad を編集した `data/test6e3b.a2m` (画面モード 2) がバイト単位で一致。画面も一致
+  (試聴中に楽器を切り替えると、エディタで変えたアルペジオ / ビブラートの表の番号が戻ってしまう本家の動作も同じ)
+- 本家 SDL 版は試聴中に鍵盤を押すと Access Violation で落ちる (get_chanpos の `pBYTE(data)[idx]` が配列の中身を
+  ポインタとして読む)。クローン版は配列を正しく読み (楽器窓の試聴と同じ get_chanpos)、音を鳴らす。
+  鍵盤を押す手順はクローン版だけで行い、保存結果の比較から外した (音を鳴らしても曲データは変わらない)
+- 本家の確認で鍵盤を押し続けるときは、PostMessage の WM_KEYUP が SDL に届かないため keybd_event で送る
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -161,8 +175,7 @@
 ## 今後の計画
 
 ### フェーズ6e: 楽器とマクロ
-- 6e-3b (次の作業): マクロエディタの試聴 (Space / Ctrl+Space、PREViEW / LOOP の表示)
-- 6e-4: A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)、マクロエディタの F2 (A2W)・Ctrl+F2・F3・Ctrl+M
+- 6e-4 (次の作業): A2B / A2W の保存 (Alt+F2 / Ctrl+F2) と読み込み、MACRO_BROWSER (Ctrl+M)、マクロエディタの F2 (A2W)・Ctrl+F2・F3・Ctrl+M
 - 6e-5: BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
 
 ### フェーズ6f: その他の編集機能

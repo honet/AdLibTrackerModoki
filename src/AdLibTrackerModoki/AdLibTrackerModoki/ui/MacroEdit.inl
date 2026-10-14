@@ -2264,6 +2264,394 @@ namespace macroedit
         }
         return false;
     }
+
+    // --- 試聴 (Space / Ctrl+Space) ---
+
+    // _macro_preview_init / _macro_preview_body の作業用
+    uint8_t _m_chan_handle[21];   // [1..18]。オリジナルはパーカッションで [16..20] にも書くため広げてある
+    uint8_t _m_channels = 0;
+    uint8_t _m_flag_4op = 0;
+    decltype(A2Player::event_table) _m_event_table_bak;
+    decltype(A2Player::freq_table) _m_freq_table_bak, _m_freqtable2_bak;
+    decltype(A2Player::keyoff_loop) _m_keyoff_loop_bak;
+    decltype(A2Player::channel_flag) _m_channel_flag_backup;
+    decltype(A2Player::fmpar_table) _m_fmpar_table_backup;
+    decltype(A2Player::volume_table) _m_volume_table_backup;
+    decltype(A2Player::pan_lock) _m_pan_lock_backup;
+    decltype(A2Player::volume_lock) _m_volume_lock_backup;
+    decltype(A2Player::peak_lock) _m_peak_lock_backup;
+    decltype(A2Player::panning_table) _m_panning_table_backup;
+    bool _m_status_backup_replay_forbidden = false;
+    PlayStatus _m_status_backup_play_status = PlayStatus::Stopped;
+    uint8_t _bak_arpeggio_table = 0, _bak_vibrato_table = 0;
+    uint8_t _bak_common_flag = 0;
+    bool _bak_volume_scaling = false;
+    uint8_t _bak_current_inst = 1;
+    bool _4op_mode = false;
+
+    bool _1op_preview_active()
+    {
+        uint8_t nm_slots = 0;
+        for (int temp = 1; temp <= 4; ++temp) {
+            if (_operator_enabled[temp]) ++nm_slots;
+        }
+        return nm_slots == 1;
+    }
+
+    // state = 1: 試聴の準備 (プレイヤーの状態を退避して止める)、state = 0: 元に戻す
+    void _macro_preview_init(uint8_t state, uint8_t instr2)
+    {
+        A2Player& p = P();
+        FixedSongData& sd = songdata();
+        _4op_mode = sd.flag_4op != 0 && instr2 != BYTE_NULL;
+
+        switch (state) {
+        case 0:
+            std::memcpy(p.fmpar_table, _m_fmpar_table_backup, sizeof(p.fmpar_table));
+            std::memcpy(p.volume_table, _m_volume_table_backup, sizeof(p.volume_table));
+            std::memcpy(p.panning_table, _m_panning_table_backup, sizeof(p.panning_table));
+            at1(sd.instr_macros, _bak_current_inst).arpeggio_table = _bak_arpeggio_table;
+            at1(sd.instr_macros, _bak_current_inst).vibrato_table = _bak_vibrato_table;
+            sd.common_flag = _bak_common_flag;
+            p.volume_scaling = _bak_volume_scaling;
+            p.reset_player();
+
+            std::memcpy(p.channel_flag, _m_channel_flag_backup, sizeof(p.channel_flag));
+            std::memcpy(p.event_table, _m_event_table_bak, sizeof(p.event_table));
+            std::memcpy(p.pan_lock, _m_pan_lock_backup, sizeof(p.pan_lock));
+            std::memcpy(p.volume_lock, _m_volume_lock_backup, sizeof(p.volume_lock));
+            std::memcpy(p.peak_lock, _m_peak_lock_backup, sizeof(p.peak_lock));
+
+            really_no_status_refresh = false;
+            std::memcpy(p.freq_table, _m_freq_table_bak, sizeof(p.freq_table));
+            std::memcpy(p.freqtable2, _m_freqtable2_bak, sizeof(p.freqtable2));
+            std::memcpy(p.keyoff_loop, _m_keyoff_loop_bak, sizeof(p.keyoff_loop));
+            std::memset(p.macro_table, 0, sizeof(p.macro_table));
+            p.replay_forbidden = _m_status_backup_replay_forbidden;
+            p.play_status = _m_status_backup_play_status;
+            break;
+
+        case 1:
+            _m_status_backup_replay_forbidden = p.replay_forbidden;
+            _m_status_backup_play_status = p.play_status;
+            p.replay_forbidden = true;
+            if (p.play_status != PlayStatus::Stopped) p.play_status = PlayStatus::Paused;
+            p.nul_volume_bars();
+            really_no_status_refresh = true;
+            p.reset_player();
+
+            std::memset(_m_chan_handle, 0, sizeof(_m_chan_handle));
+            std::memcpy(_m_channel_flag_backup, p.channel_flag, sizeof(p.channel_flag));
+            std::memcpy(_m_event_table_bak, p.event_table, sizeof(p.event_table));
+            std::fill(std::begin(p.channel_flag), std::end(p.channel_flag), true);
+            std::memcpy(_m_pan_lock_backup, p.pan_lock, sizeof(p.pan_lock));
+            std::memcpy(_m_volume_lock_backup, p.volume_lock, sizeof(p.volume_lock));
+            std::memcpy(_m_peak_lock_backup, p.peak_lock, sizeof(p.peak_lock));
+            std::memcpy(_m_panning_table_backup, p.panning_table, sizeof(p.panning_table));
+            std::fill(std::begin(p.pan_lock), std::end(p.pan_lock), false);
+            std::fill(std::begin(p.volume_lock), std::end(p.volume_lock), false);
+            std::fill(std::begin(p.peak_lock), std::end(p.peak_lock), false);
+            _m_flag_4op = sd.flag_4op;
+            if (!p.percussion_mode && !(sd.flag_4op != 0)) {
+                _m_channels = 18;
+            } else if (!(sd.flag_4op != 0)) {
+                _m_channels = 15;
+            } else if (_4op_mode && !_1op_preview_active()) {
+                _m_flag_4op = 0x3f;
+                _m_channels = 6;
+            } else {
+                _m_flag_4op = 0;
+                _m_channels = !p.percussion_mode ? 18 : 15;
+            }
+
+            _bak_arpeggio_table = at1(sd.instr_macros, current_inst).arpeggio_table;
+            _bak_vibrato_table = at1(sd.instr_macros, current_inst).vibrato_table;
+            _bak_common_flag = sd.common_flag;
+            _bak_volume_scaling = p.volume_scaling;
+            _bak_current_inst = current_inst;
+            at1(sd.instr_macros, current_inst).arpeggio_table = ptr_arpeggio_table;
+            at1(sd.instr_macros, current_inst).vibrato_table = ptr_vibrato_table;
+            sd.common_flag = B(sd.common_flag & ~0x80);
+            p.volume_scaling = false;
+            p.reset_player();
+
+            std::memcpy(_m_fmpar_table_backup, p.fmpar_table, sizeof(p.fmpar_table));
+            std::memcpy(_m_volume_table_backup, p.volume_table, sizeof(p.volume_table));
+            std::memcpy(_m_freq_table_bak, p.freq_table, sizeof(p.freq_table));
+            std::memcpy(_m_freqtable2_bak, p.freqtable2, sizeof(p.freqtable2));
+            std::memcpy(_m_keyoff_loop_bak, p.keyoff_loop, sizeof(p.keyoff_loop));
+            std::fill(std::begin(p.keyoff_loop), std::end(p.keyoff_loop), false);
+
+            p.misc_register = B((p.current_tremolo_depth << 7) + (p.current_vibrato_depth << 6) + (int(p.percussion_mode) << 5));
+
+            p.opl3out(0x01, 0x20);
+            p.opl3out(0x08, 0x40);
+            p.opl3out(0x105, 0x01);           // opl3exp($0105)
+            p.opl3out(0x104, _m_flag_4op);    // opl3exp($04+_m_flag_4op SHL 8)
+
+            p.key_off(17);
+            p.key_off(18);
+            p.opl3out(0xbd, p.misc_register);
+
+            p.macro_speedup = sd.macro_speedup;
+            if (p.play_status == PlayStatus::Stopped) p.update_timer(sd.tempo);
+            break;
+        }
+    }
+
+    // MIDI ボードの鍵盤を押している間、マクロを動かしながら楽器を鳴らす。ロックを取った状態で呼ぶ
+    void _macro_preview_body(uint8_t instr_, uint8_t instr2, uint8_t /*chan*/, uint16_t fkey)
+    {
+        if (ctrl_pressed() || alt_pressed() || shift_pressed()) return;
+
+        A2Player& p = P();
+        FixedSongData& sd = songdata();
+        const bool _1op = _1op_preview_active();
+
+        // 鍵盤 board_pos の音を chan (_m_chan_handle の位置) で鳴らす
+        const auto output_note = [&](uint8_t chan, uint8_t board_pos) {
+            const int note = board_pos + 12 * (current_octave - 1);
+            if (!(note >= 0 && note <= 12 * 8 + 1)) return false;
+
+            _m_chan_handle[chan] = board_scancodes[board_pos - 1];
+            // オリジナルは _4op_main_chan[1..6] の範囲外 (パーカッションの 16..20) も読むが、ここでは変えない
+            if (_4op_mode && chan <= 6) chan = _4op_main_chan[chan - 1];
+
+            if (_1op) {
+                Instrument ins = (_operator_enabled[1] || _operator_enabled[2]) ? at1(sd.instr_data, instr_) : at1(sd.instr_data, instr2);
+                ins.fm_data.FEEDBACK_FM |= 1;
+                p.load_instrument(reinterpret_cast<const uint8_t*>(&ins), chan);
+                const uint16_t vol = p.volume_table[chan];
+                if (_operator_enabled[1] || _operator_enabled[2]) {
+                    p.set_ins_volume(B(0x3f - int(_operator_enabled[1]) * (0x3f - LO(vol))),
+                                     B(0x3f - int(_operator_enabled[2]) * (0x3f - HI(vol))), chan);
+                } else {
+                    p.set_ins_volume(B(0x3f - int(_operator_enabled[3]) * (0x3f - LO(vol))),
+                                     B(0x3f - int(_operator_enabled[4]) * (0x3f - HI(vol))), chan);
+                }
+            } else {
+                p.load_instrument(instr_data_bytes(instr_), chan);
+                const uint16_t vol = p.volume_table[chan];
+                p.set_ins_volume(B(0x3f - int(_operator_enabled[1]) * (0x3f - LO(vol))),
+                                 B(0x3f - int(_operator_enabled[2]) * (0x3f - HI(vol))), chan);
+                const uint8_t perc_voice = at1(sd.instr_data, instr_).perc_voice;
+                if (p.percussion_mode && (perc_voice == 4 || perc_voice == 5) && (chan == 19 || chan == 20))
+                    p.load_instrument(instr_data_bytes(instr_), _perc_sim_chan[chan - 19]);
+                if (_4op_mode) {
+                    p.load_instrument(instr_data_bytes(instr2), B(chan - 1));
+                    const uint16_t vol2 = p.volume_table[chan - 1];
+                    p.set_ins_volume(B(0x3f - int(_operator_enabled[3]) * (0x3f - LO(vol2))),
+                                     B(0x3f - int(_operator_enabled[4]) * (0x3f - HI(vol2))), B(chan - 1));
+                }
+            }
+
+            const uint16_t freq = static_cast<uint16_t>(A2Player::nFreq(B(note - 1)) + 0x2000 +
+                                                        static_cast<int8_t>(ins_byte(instr_, 12)));
+            p.event_table[chan].note = B(note);
+            p.freq_table[chan] = freq;
+            p.freqtable2[chan] = freq;
+            p.key_on(chan);
+            p.change_freq(chan, freq);
+
+            if (!(_1op && (_operator_enabled[3] || _operator_enabled[4]))) p.init_macro_table(chan, B(note), instr_, freq);
+            else p.init_macro_table(chan, B(note), instr2, freq);
+
+            if (_4op_mode && !_1op) p.init_macro_table(B(chan - 1), B(note), instr2, freq);
+            return true;
+        };
+
+        // 鍵盤を離すまで画面を更新し続ける
+        const auto poll_screen = []() {
+            PlayerUnlock unlock;
+            keyboard_poll_input();
+            keyboard_reset_buffer();
+            draw_screen();
+        };
+
+        bool valid_key = false;
+        int temp = 1;
+        for (; temp <= 29; ++temp) {
+            if (!shift_pressed() && board_scancodes[temp - 1] == HI(fkey)) {
+                valid_key = true;
+                break;
+            }
+        }
+        if (!valid_key || !in_range(temp + 12 * (current_octave - 1) - 1, 0, 12 * 8 + 1)) return;
+
+        uint8_t temp2 = B(temp);
+        const uint8_t perc_voice = at1(sd.instr_data, instr_).perc_voice;
+        if (p.percussion_mode && in_range(perc_voice, 1, 5)) {
+            output_note(B(perc_voice + 15), temp2);
+            while (scankey(board_scancodes[temp2 - 1]) && !_force_program_quit) poll_screen();
+        } else {
+            do {
+                {
+                    PlayerUnlock unlock;
+                    keyboard_poll_input();
+                }
+                valid_key = false;
+                for (temp = 1; temp <= 29; ++temp) {
+                    temp2 = board_scancodes[temp - 1];
+                    const bool temp4 = scankey(temp2);
+                    uint8_t temp3, temp5;
+                    if (!_4op_mode) {
+                        temp3 = get_chanpos(_m_chan_handle + 1, _m_channels, temp2);
+                        temp5 = get_chanpos(_m_chan_handle + 1, _m_channels, 0);
+                    } else {
+                        temp3 = get_chanpos2(_m_chan_handle + 1, _m_channels, temp2);
+                        temp5 = get_chanpos2(_m_chan_handle + 1, _m_channels, 0);
+                    }
+
+                    if (temp4) valid_key = true;
+                    if (temp4 && temp3 == 0 && temp5 != 0) output_note(temp5, B(temp));
+
+                    if (!temp4 && temp3 != 0) {
+                        p.key_off(temp3);
+                        _m_chan_handle[temp3] = 0;
+                    }
+                }
+                poll_screen();
+            } while (valid_key && !_force_program_quit);
+        }
+    }
+
+    void _macro_preview_init_cur(uint8_t state)
+    {
+        if (get_4op_to_test() != 0) _macro_preview_init(state, B(~BYTE_NULL));
+        else _macro_preview_init(state, BYTE_NULL);
+    }
+
+    // Space / Ctrl+Space: 試聴の状態に入り、Space か ESC で抜ける (ESC はそのままエディタも閉じる)
+    void macro_preview()
+    {
+        A2Player& p = P();
+        FixedSongData& sd = songdata();
+
+        refresh(0);
+        HideCursor();
+        _pip_dest = screen_ptr;
+        _macro_preview_init_cur(1);
+
+        if (ctrl_pressed() && key() == kSPACE) _pip_loop = true;
+        std::fill(std::begin(p.keyoff_loop) + 1, std::begin(p.keyoff_loop) + 21, _pip_loop);
+
+        macro_preview_indic_proc = _preview_indic_proc;
+        is_environment.keystroke = WORD_NULL;
+
+        if (!_force_program_quit) {
+            do {
+                // オクターブの表示 (オリジナルのまま 30 行目に書く)
+                for (int temp = 1; temp <= 8; ++temp) {
+                    show_str(B(30 + temp), 30, std::string(1, static_cast<char>(48 + temp)),
+                             main_background + (temp != current_octave ? main_stat_line : main_hi_stat_line));
+                }
+
+                bool pressed;
+                {
+                    PlayerUnlock unlock;
+                    pressed = keypressed();
+                    if (pressed) is_environment.keystroke = getkey();
+                }
+                if (_force_program_quit) break;
+
+                if (pressed) {
+                    const uint16_t k = key();
+                    switch (k) {
+                    case kF7:
+                        for (int temp = 1; temp <= 20; ++temp) p.reset_chan_data(B(temp));
+                        break;
+
+                    case kCtLbr:
+                        if (shift_pressed()) {
+                            if (sd.macro_speedup > 1) --sd.macro_speedup;
+                            p.macro_speedup = sd.macro_speedup;
+                            p.reset_player();
+                        } else if (current_inst > 1) {
+                            --current_inst;
+                            if (marked_instruments() != 2) reset_marked_instruments();
+                            instrum_page = current_inst;
+                            std::fill(std::begin(_operator_enabled), std::end(_operator_enabled), true);
+                            STATUS_LINE_refresh();
+                            p.reset_player();
+                        }
+                        break;
+
+                    case kCtRbr:
+                        if (shift_pressed()) {
+                            ++sd.macro_speedup;
+                            if (calc_max_speedup(sd.tempo) < sd.macro_speedup) sd.macro_speedup = calc_max_speedup(sd.tempo);
+                            p.macro_speedup = sd.macro_speedup;
+                            p.reset_player();
+                        } else if (current_inst < 255) {
+                            ++current_inst;
+                            if (marked_instruments() != 2) reset_marked_instruments();
+                            instrum_page = current_inst;
+                            std::fill(std::begin(_operator_enabled), std::end(_operator_enabled), true);
+                            STATUS_LINE_refresh();
+                            p.reset_player();
+                        }
+                        break;
+
+                    case kAlt0: std::fill(std::begin(_operator_enabled), std::end(_operator_enabled), true); break;
+                    case kAlt1: _set_operator_flag(1, shift_pressed()); break;
+                    case kAlt2: _set_operator_flag(2, shift_pressed()); break;
+                    case kAlt3: _set_operator_flag(3, shift_pressed()); break;
+                    case kAlt4: _set_operator_flag(4, shift_pressed()); break;
+                    }
+
+                    if (k == kCtLbr || k == kCtRbr || k == kAlt0 || k == kAlt1 || k == kAlt2 || k == kAlt3 || k == kAlt4) {
+                        keyboard_reset_buffer();
+                        if (!arp_vib_mode) {
+                            im().arpeggio_table = ptr_arpeggio_table;
+                            im().vibrato_table = ptr_vibrato_table;
+                        }
+
+                        _macro_preview_init_cur(0);
+                        instr = current_inst;
+
+                        if (!arp_vib_mode) {
+                            ptr_arpeggio_table = im().arpeggio_table;
+                            ptr_vibrato_table = im().vibrato_table;
+                        }
+
+                        if (arp_vib_mode && pos < 8) pos = 8;
+                        else if (!arp_vib_mode && ((ptr_arpeggio_table == 0 && in_range(pos, 8, 13)) ||
+                                                   (ptr_vibrato_table == 0 && in_range(pos, 14, 20))))
+                            pos = 1;
+
+                        ShowStr(centered_frame_vdest, B(xstart + (!arp_vib_mode ? 54 : 57) + window_area_inc_x / 2), ystart,
+                                byte2hex(instr), macro_background + dialog_title);
+
+                        refresh(flag_FMREG + flag_ARPEGGIO + flag_VIBRATO);
+                        _macro_preview_init_cur(1);
+                    }
+
+                    const uint16_t t4 = get_4op_to_test();
+                    if (t4 != 0) _macro_preview_body(LO(t4), HI(t4), count_channel(pattern_hpos), key());
+                    else _macro_preview_body(instrum_page, BYTE_NULL, count_channel(pattern_hpos), key());
+
+                    if (ctrl_pressed() && !shift_pressed() && key() == kSPACE) {
+                        _pip_loop = !_pip_loop;
+                        std::fill(std::begin(p.keyoff_loop) + 1, std::begin(p.keyoff_loop) + 21, _pip_loop);
+                        is_environment.keystroke = WORD_NULL;
+                    }
+
+                    if (shift_pressed() && key() == kSPACE) is_environment.keystroke = WORD_NULL;
+                }
+
+                {
+                    PlayerUnlock unlock;
+                    draw_screen();
+                }
+            } while (key() != kSPACE && key() != kESC && !_force_program_quit);
+        }
+
+        _macro_preview_init_cur(0);
+        macro_preview_indic_proc = nullptr;
+        _pip_dest = temp_screen;
+        if (use_large_cursor) WideCursor();
+        else ThinCursor();
+    }
 }   // namespace macroedit
 
 void FILE_save(const wchar_t* ext, bool quick);
@@ -2455,7 +2843,8 @@ void MACRO_EDITOR(uint8_t instr_, bool arp_vib_mode_)
                 else if (pos == 20) jmp2 = edit_vibrato_table();
                 if (jmp2) break;
 
-                // Space: マクロの試聴 (6e-3b で実装する)
+                // Space / Ctrl+Space: マクロの試聴
+                if (!shift_pressed() && key() == kSPACE) macro_preview();
 
                 {
                     PlayerUnlock unlock;
