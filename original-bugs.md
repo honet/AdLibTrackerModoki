@@ -1,0 +1,91 @@
+# 本家 (AdLib Tracker II SDL 2.4.25) のバグ
+
+本クローン版の開発中に見つかった、本家のバグや意図しないと思われる動作の記録。
+対象はソース `original/at2_sourcecode_06-02-2026/` とバイナリ `original/AdlibTracker2_SDL_2.4.25/`。
+
+「クローン版の扱い」の意味:
+
+- **再現**: 出音・保存結果・画面を本家と一致させるため、同じ動作にしている
+- **回避**: 落ちる・止まる・メモリを壊すなど、再現する意味がないので安全な動作にしている
+
+場所の欄の「→」の後は、クローン版で対応する処理のある場所。
+
+---
+
+## 異常終了・停止
+
+| 現象 | 場所 | 原因 | クローン版の扱い |
+|---|---|---|---|
+| マクロエディタの試聴中 (Space) に MIDI ボードの鍵盤を押すと Access Violation で落ちる | adt2unit.pas `get_chanpos` (SDL 版) → ui/MacroEdit.inl | 型なし引数 `var data` を `pBYTE(data)[idx]` と読んでいる。配列の中身 (0) をポインタとして読むため nil を参照する (正しくは `pBYTE(@data)`。DOS 版のアセンブラは正しい)。パーカッション楽器の試聴は `get_chanpos` を通らないので落ちない | 回避 (配列を正しく読んで音を鳴らす) |
+| tempo または macro_speedup が 0 だと止まる | adt2unit.pas のタイマー処理 → core/player/A2Player.cpp | 0 除算 | 回避 (1 として扱う) |
+| オーダーの 2 つのジャンプが互いを指していると止まる | オーダーをたどる処理 → ui/MainScreen.cpp | 無限ループ | 回避 (回数の上限を設ける) |
+| パターン窓で `While (chan < chan_pos) do Inc(hpos)` が止まらないことがある | PATTERN_edit → ui/MainScreen.cpp | ループの中で `chan` が変わらない | 回避 (このループを省く。止まらない場合の結果は同じ) |
+| `DietStr` が size < 3 で終わらない | stringio.pas `DietStr` → ui/StringIO.cpp | 文字列を縮める処理が進まない | 回避 (size 文字で切る) |
+| 壊れた CFF ファイルでメモリを壊して止まる | iloaders.inc (CFF の LZTYR 展開) → core/song/CffLoader.cpp | 出力の大きさを確かめていない | 回避 (出力の上限を設ける) |
+
+## 範囲外の読み書き
+
+| 現象 | 場所 | クローン版の扱い |
+|---|---|---|
+| `_panning` (array[0..2]) を範囲外の添字で読む。メモリ上で直後に続く `_instr_data_ofs` の値が使われる | adt2unit.pas → core/player/A2Player.cpp | 再現 (直後の値を含めた 16 要素の表にする) |
+| マクロエディタで表の番号 0 の `macro_table[0]` を読む (直前の `instr_macros[255]` の末尾が見える) | adt2ext4.pas / adt2ext5.pas → ui/MacroEdit.inl | 再現 |
+| `pattern_order` を 128 以上の添字で読む (後続のフィールドが見える) | adt2unit.pas、S3M ローダー → core/player/A2Player.h、core/song/S3mLoader.cpp | 再現 |
+| マクロ試聴でパーカッション楽器を鳴らすと `_m_chan_handle[1..18]` の [19], [20] に書き込み、`_4op_main_chan[1..6]` も範囲外 (16..20) で読む | adt2ext4.pas `_macro_preview_body` → ui/MacroEdit.inl | 回避 (配列を広げる。`_4op_main_chan` は範囲内のときだけ引く) |
+| 楽器の試聴で `_4op_main_chan` を範囲外で読む | 楽器の試聴 → ui/InstEdit.inl | 回避 |
+| 楽器窓の鳴っている楽器の印で `iflag[1..18]` を 19, 20 で読む | instedit.inc → ui/InstEdit.inl | 回避 (0 とする) |
+| 楽器エディタの表示で [1..23] の配列を 24 行目まで表示する (直後の配列の文字列が出るが、下の枠で隠れる) | instedit.inc → ui/InstEdit.inl | 再現 |
+| 楽器エディタで panning が 3 以上のとき `ins_pan_str1` を範囲外で読む | instedit.inc → ui/InstEdit.inl | 回避 (表示しない) |
+| エフェクト番号が範囲外のとき `fx_digits` (48 文字) の後ろのメモリを読む | adt2ext*.pas → ui/MainScreen.cpp | 回避 ('?' を表示) |
+| キーオフ (0xFF) などで `note_layout` の後ろのメモリを読む | パターンの表示 → ui/MainScreen.cpp | 回避 (空欄) |
+| LZW 展開の表 `le7a` が 5 要素 (9..13 ビット) だが、`le78` は 14 まで増える | depackio.pas → core/song/Depack.cpp | 回避 (14 ビット分を補う) |
+| LZH 展開の `make_table` で `count[1..16]` の添字 0 に書き込む | depackio.pas → core/song/Depack.cpp | 回避 |
+| 展開処理が入力の終端を超えて読む。RDC 展開は出力より前 (直前のメモリ) を参照することがある | depackio.pas → core/song/Depack.cpp | 回避 (範囲外は 0) |
+| 展開結果がレコードより大きいと後続のフィールド・メモリへはみ出して書く (A2M / A2T 旧形式、MTK など) | iloaders.inc → core/song/LoaderCommon.cpp ほか | 回避 (レコードの大きさまでコピー) |
+| AMD で patterns が 63 を超えると `track_order` が後続の変数へはみ出す | iloaders.inc → core/song/AmdLoader.cpp | 回避 (256 パターン分確保) |
+| FMK のパン値 3 で `_conv_fmk_pan[0..2]` の外を読む。パターン・楽器の数が多いと `paraptr_*` がはみ出す | iloaders.inc → core/song/FmkLoader.cpp | 回避 (0 とする) |
+| SAT の `ordr2` を範囲外で読む | iloaders.inc → core/song/SatLoader.cpp | 回避 (0 とする) |
+| 画面メモリの範囲外にも書き込む | txtscrio.pas → ui/TxtScrIO.cpp | 回避 (画面メモリ内に限る) |
+
+## 初期化していない値・前回の値が残る
+
+| 現象 | 場所 | クローン版の扱い |
+|---|---|---|
+| A2M 保存時、`ins_4op_flags` の num_4op より後ろに初期化していないスタックの値が書き込まれる | adt2unit.pas `set_4op_flag` / `reset_4op_flag` | 回避 (0。本家との比較ではこの部分を除く) |
+| A2P 保存時、パターン名の後ろ (31 バイト目まで) に作業用バッファの前の内容が残る | adt2ext*.pas → core/song/ModuleSaver.cpp | 回避 (0) |
+| 旧形式の A2P 読み込みで、グローバル変数 `old_hash_buffer` に前回の内容が残る | iloaders.inc → core/song/A2pLoader.cpp | 回避 (0 から始める) |
+| グローバルなバッファ `buf1` の、読み込んだサイズより後ろに以前の内容が残る | iloaders.inc → core/song/LoaderCommon.h | 再現 |
+| `Menu` の作業用配列 (1..16384) で、項目数より後ろに前回のメニューの値が残る | dialogio.pas → ui/DialogIO.cpp | 再現 |
+| SAT の再開位置を、For ループを抜けた後のループ変数で書き込む (未定義の値) | iloaders.inc → core/song/SatLoader.cpp | 回避 (1 回も回らない場合は -1 とみなす) |
+| エフェクト名を返す関数が、case に当てはまらない値のとき結果が未定義 | adt2ext*.pas → ui/MainScreen.cpp | 回避 (空欄) |
+| マクロエディタの表示で、case に当てはまらない値のとき前回の文字列のまま表示する | adt2ext5.pas → ui/MacroEdit.inl | 再現 |
+| 曲を読み込み直しても OPL エミュレータの状態をリセットしないため、前の曲の残りが次の曲の出音に混ざる | adt2unit.pas / opl3emu.pas | — (本家の録音は曲ごとに起動し直して取る) |
+
+## 処理の誤り (結果が変わるもの)
+
+| 現象 | 場所 | クローン版の扱い |
+|---|---|---|
+| ef_SwapVibrato が `vib_pos` ではなく `vib_table` と長さを比べる | adt2unit.pas → core/player/A2Player.cpp | 再現 |
+| tremolo2 (エフェクト列 2) は `dir` ではなく `pos = 0` で向きを判定する | adt2unit.pas → core/player/A2Player.cpp | 再現 |
+| ピークロックの 4OP 制限値で、Word に `(car SHL 16) + mod` を代入するためキャリア側が常に 0 になる | adt2unit.pas → core/player/A2Player.cpp | 再現 |
+| TremOff の判定がエフェクト列 1 は `is_4op_chan`、列 2 は `_4op_vol_valid_chan` と食い違う | adt2unit.pas → core/player/A2Player.cpp | 再現 |
+| エフェクト列 1 を処理するとエフェクト列 2 を見ない (else-if になっている) | adt2unit.pas → core/player/A2Player.cpp | 再現 |
+| OPL3 エミュレータのアタックで `limit_value` の結果を捨てている (範囲制限が効かない) | opl3emu.pas → core/opl/Opl3EmulatorAt2.cpp | 再現 |
+| OPL3 エミュレータで 4OP のペアへ block をコピーするのが A0 (下位) 書き込み時だけ | opl3emu.pas → core/opl/Opl3EmulatorAt2.cpp | 再現 |
+| A2M / A2T 旧形式の読み込みで、2 ブロック目以降も 1 ブロック目のサイズ (b2len / b3len) を展開処理に渡す | iloaders.inc → core/song/A2mLoader.cpp、A2tLoader.cpp | 再現 |
+| `cstr2str` が For ループ中に Delete するため、連続する '~' の 2 つ目が残る | adt2extn.pas → core/song/ModuleLoader.cpp | 再現 |
+| A2F 保存で arpeggio_table / vibrato_table を 0 にする書き込みの位置がずれている (dis_fmreg_col で上書きされ、マクロはそのまま保存される) | instedit.inc → core/song/InstrumentFile.cpp | 再現 (結果が同じになるようにしている) |
+| 再生操作で、nosync_by_default のとき Alt+F9 ではなく F8 を見ている | パターン窓のキー処理 → ui/MainScreen.cpp | 再現 |
+| Ctrl+Z 用の保存が `SizeOf(tPATTERN_DATA) DIV 16` バイトで、1 パターンではなく 8 パターン分を保存する | adt2ext*.pas → ui/MainScreen.cpp | 再現 |
+| パターン一覧の CRC 計算で、マークは戻すが 9 文字目は #14 のまま残る | adt2ext*.pas → ui/MainScreen.cpp | 再現 |
+| マクロエディタの FM レジスタ表で、フラグ列の値を #251 と比べるため常に 0 になる | adt2ext5.pas → ui/MacroEdit.inl | 再現 |
+| マクロエディタの試聴中に楽器を切り替えると (Ctrl+[ / ]、Alt+0〜4)、エディタで変えたアルペジオ / ビブラートの表の番号が、エディタを開き直した時点の値に戻る | adt2ext4.pas `_macro_preview_init` → ui/MacroEdit.inl | 再現 |
+| マクロエディタを閉じるときの描き直しの範囲で、高さに `window_area_inc_y` ではなく `window_area_inc_x` を足している | adt2ext4.pas `MACRO_EDITOR` → ui/MacroEdit.inl | 再現 |
+| マクロ試聴中のオクターブ表示を 30 行目に固定で書くため、画面モード 2 ではパターン窓の中に出る | adt2ext4.pas `MACRO_EDITOR` → ui/MacroEdit.inl | 再現 |
+| SDL 版の `get_chanpos` は内側のループを 1 回目で抜けるため、4OP でない試聴は 1 チャンネルでしか鳴らない (和音にならない) | adt2unit.pas `get_chanpos` → ui/InstEdit.inl | 再現 |
+
+## 入力
+
+| 現象 | 場所 | クローン版の扱い |
+|---|---|---|
+| SDL のキー番号順に `keydown[scan]` を上書きするため、同じスキャンコードのキー (グレーの矢印キーとテンキーなど) は番号の大きい方の状態になる | adt2keyb.pas `TranslateKeycodes` → platform/input/Keyboard.cpp | 再現 |
+| キーを取り出す時点の修飾キーの状態で変換するため、修飾キーを離した後に取り出すと修飾が失われる | adt2keyb.pas → platform/input/Keyboard.cpp | 回避 (押した時点の状態で変換する) |
