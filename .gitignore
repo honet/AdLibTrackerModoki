@@ -5,6 +5,7 @@
 
 # project specific
 original/
+data/
 *~
 *.bak
 
