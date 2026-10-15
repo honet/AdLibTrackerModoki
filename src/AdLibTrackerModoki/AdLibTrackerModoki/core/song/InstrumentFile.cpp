@@ -378,6 +378,193 @@ namespace
         return true;
     }
 
+    // 他のトラッカーの楽器ファイル (adt2ext3.pas の cif / fin / ins / sbi / sgi_file_loader)。
+    // FM のデータ・panning・fine_tune だけを書き換え、perc_voice はそのまま残す (オリジナルと同じ)。
+
+    // 楽器名を Copy(instr_names[ins], 1, 9) + name にする
+    void put_instr_name(FixedSongData& songdata, uint8_t ins, const std::string& name)
+    {
+        auto& instr_name = at1(songdata.instr_names, ins);
+        instr_name.assign(pcopy(instr_name.str(), 1, 9) + name);
+    }
+
+    // BlockRead(f, buffer, SizeOf(buffer), temp) と同じく、ファイルの先頭から最大 size バイトを読む。
+    // 読めなかった部分は 0 とする (オリジナルは初期化していないスタックの値)。読めたバイト数を返す。
+    size_t read_head(const std::vector<uint8_t>& file, void* buffer, size_t size)
+    {
+        const size_t n = std::min(size, file.size());
+        std::memset(buffer, 0, size);
+        if (n > 0) std::memcpy(buffer, file.data(), n);
+        return n;
+    }
+
+#pragma pack(push, 1)
+    struct CifData   // tCIF_DATA
+    {
+        char ident[20];
+        uint8_t idata[11];
+        uint8_t resrv;
+        char iname[20];
+    };
+
+    struct FinData   // tFIN_DATA
+    {
+        char dname[12];
+        char iname[27];
+        uint8_t idata[11];
+    };
+
+    struct InsData   // tINS_DATA
+    {
+        uint8_t idata[11];
+        uint8_t slide;
+        uint8_t _SAdT[19];
+    };
+
+    struct SbiData   // tSBI_DATA
+    {
+        char ident[4];
+        char iname[32];
+        uint8_t idata[11];
+        uint8_t dummy[5];
+    };
+#pragma pack(pop)
+
+    static_assert(sizeof(CifData) == 52);
+    static_assert(sizeof(FinData) == 50);
+    static_assert(sizeof(InsData) == 31);
+    static_assert(sizeof(SbiData) == 52);
+
+    constexpr size_t SGI_DATA_SIZE = 26;   // tSGI_DATA
+
+    // INS の並びの判別に使う設定 (adtrack2.ini の force_ins。本クローン版は既定値の 0 に固定)
+    constexpr uint8_t force_ins = 0;
+
+    bool load_cif(const std::wstring& path, const std::vector<uint8_t>& file, FixedSongData& songdata, uint8_t current_inst,
+                  std::wstring& error)
+    {
+        static const char id[] = "<CUD-FM-Instrument>\x1A";
+        constexpr size_t MIN_CIF_SIZE = sizeof(CifData::ident) + sizeof(CifData::idata) + sizeof(CifData::resrv);
+        CifData buffer;
+        const size_t temp = read_head(file, &buffer, sizeof(buffer));
+        if (!(temp >= MIN_CIF_SIZE && std::memcmp(buffer.ident, id, 20) == 0)) {
+            error = L"ファイルが壊れています";
+            return false;
+        }
+
+        import_hsc_instrument(songdata, current_inst, buffer.idata);
+        at1(songdata.instr_data, current_inst).fine_tune = 0;
+
+        std::string temp_str = truncate_string(char_array(buffer.iname));
+        if (temp_str.empty()) temp_str = lower_name_only(path);
+        put_instr_name(songdata, current_inst, temp_str);
+        return true;
+    }
+
+    bool load_fin(const std::wstring& path, const std::vector<uint8_t>& file, FixedSongData& songdata, uint8_t current_inst,
+                  std::wstring& error)
+    {
+        FinData buffer;
+        if (read_head(file, &buffer, sizeof(buffer)) != sizeof(buffer)) {
+            error = L"ファイルが壊れています";
+            return false;
+        }
+
+        import_fin_instrument(songdata, current_inst, buffer.idata);
+        // iname は 27 文字なので、常に iname を使う
+        std::string temp_str;
+        if (truncate_string(char_array(buffer.iname)).size() <= 32) {
+            temp_str = truncate_string(char_array(buffer.iname));
+        } else {
+            temp_str = truncate_string(char_array(buffer.dname));
+            for (char& c : temp_str) {
+                if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            }
+        }
+        if (temp_str.empty()) temp_str = lower_name_only(path);
+        put_instr_name(songdata, current_inst, pcopy(temp_str, 1, 32));
+        return true;
+    }
+
+    bool load_ins(const std::wstring& path, const std::vector<uint8_t>& file, FixedSongData& songdata, uint8_t current_inst,
+                  std::wstring& error)
+    {
+        InsData buffer;
+        if (file.size() > sizeof(buffer)) {
+            error = L"未対応の形式です";
+            return false;
+        }
+        const size_t temp = read_head(file, &buffer, file.size());
+
+        // tADTRACK2_INS として見て、波形とフィードバックが範囲内か
+        const auto correct_ins = [](const uint8_t* data) { return data[8] <= 3 && data[9] <= 3 && data[10] <= 15; };
+
+        switch (force_ins) {
+        case 0:
+            if (temp == 12) import_standard_instrument(songdata, current_inst, buffer.idata);
+            if (temp == 12 && !correct_ins(buffer.idata)) import_hsc_instrument(songdata, current_inst, buffer.idata);
+            else if (temp > 12) import_sat_instrument(songdata, current_inst, buffer.idata);
+            break;
+        case 1: import_hsc_instrument(songdata, current_inst, buffer.idata); break;
+        case 2: import_sat_instrument(songdata, current_inst, buffer.idata); break;
+        case 3: import_standard_instrument(songdata, current_inst, buffer.idata); break;
+        }
+
+        put_instr_name(songdata, current_inst, lower_name_only(path));
+        return true;
+    }
+
+    bool load_sbi(const std::wstring& path, const std::vector<uint8_t>& file, FixedSongData& songdata, uint8_t current_inst,
+                  std::wstring& error)
+    {
+        SbiData buffer;
+        if (!(read_head(file, &buffer, sizeof(buffer)) == sizeof(buffer) && std::memcmp(buffer.ident, "SBI\x1A", 4) == 0)) {
+            error = L"ファイルが壊れています";
+            return false;
+        }
+
+        import_standard_instrument(songdata, current_inst, buffer.idata);
+        std::string temp_str = truncate_string(char_array(buffer.iname));
+        if (temp_str.empty()) temp_str = lower_name_only(path);
+        put_instr_name(songdata, current_inst, pcopy(temp_str, 1, 32));
+        return true;
+    }
+
+    // import_sgi_instrument (楽器データ全体を 0 にしてから入れる)
+    void import_sgi_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data)
+    {
+        Instrument& ins = at1(songdata.instr_data, inst);
+        ins = Instrument{};
+        FmInstData& fm = ins.fm_data;
+        fm.ATTCK_DEC_modulator = static_cast<uint8_t>((data[1] & 0x0f) + ((data[0] & 0x0f) << 4));
+        fm.SUSTN_REL_modulator = static_cast<uint8_t>((data[3] & 0x0f) + ((data[2] & 0x0f) << 4));
+        fm.WAVEFORM_modulator = static_cast<uint8_t>(data[4] & 3);
+        fm.KSL_VOLUM_modulator = static_cast<uint8_t>((data[7] & 0x3f) + ((data[6] & 3) << 6));
+        fm.AM_VIB_EG_modulator = static_cast<uint8_t>((data[5] & 0x0f) + ((data[8] & 1) << 4) + ((data[11] & 1) << 5) +
+                                                      ((data[10] & 1) << 6) + ((data[9] & 1) << 7));
+        fm.ATTCK_DEC_carrier = static_cast<uint8_t>((data[13] & 0x0f) + ((data[12] & 0x0f) << 4));
+        fm.SUSTN_REL_carrier = static_cast<uint8_t>((data[15] & 0x0f) + ((data[14] & 0x0f) << 4));
+        fm.WAVEFORM_carrier = static_cast<uint8_t>(data[16] & 3);
+        fm.KSL_VOLUM_carrier = static_cast<uint8_t>((data[19] & 0x3f) + ((data[18] & 3) << 6));
+        fm.AM_VIB_EG_carrier = static_cast<uint8_t>((data[17] & 0x0f) + ((data[20] & 1) << 4) + ((data[23] & 1) << 5) +
+                                                    ((data[22] & 1) << 6) + ((data[21] & 1) << 7));
+        fm.FEEDBACK_FM = static_cast<uint8_t>((data[25] & 1) + ((data[24] & 7) << 1));
+    }
+
+    bool load_sgi(const std::wstring& path, const std::vector<uint8_t>& file, FixedSongData& songdata, uint8_t current_inst,
+                  std::wstring& error)
+    {
+        uint8_t buffer[SGI_DATA_SIZE];
+        if (read_head(file, buffer, sizeof(buffer)) != sizeof(buffer)) {
+            error = L"ファイルが壊れています";
+            return false;
+        }
+
+        import_sgi_instrument(songdata, current_inst, buffer);
+        put_instr_name(songdata, current_inst, pcopy(lower_name_only(path), 1, 32));
+        return true;
+    }
+
     class Writer
     {
     public:
@@ -513,7 +700,16 @@ void update_4op_flag_marks(FixedSongData& songdata)
 bool LoadInstrumentFile(const std::wstring& path, FixedSongData& songdata, uint8_t current_inst, std::wstring& error)
 {
     const std::wstring ext = lower_ext(path);
-    if (ext != L"a2i" && ext != L"a2f") {
+    using LoadFunc = bool (*)(const std::wstring&, const std::vector<uint8_t>&, FixedSongData&, uint8_t, std::wstring&);
+    LoadFunc load = nullptr;
+    if (ext == L"a2i") load = load_a2i;
+    else if (ext == L"a2f") load = load_a2f;
+    else if (ext == L"cif") load = load_cif;
+    else if (ext == L"fin") load = load_fin;
+    else if (ext == L"ins") load = load_ins;
+    else if (ext == L"sbi") load = load_sbi;
+    else if (ext == L"sgi") load = load_sgi;
+    if (load == nullptr) {
         error = L"対応していない形式です";
         return false;
     }
@@ -524,11 +720,14 @@ bool LoadInstrumentFile(const std::wstring& path, FixedSongData& songdata, uint8
         return false;
     }
 
-    const bool ok = ext == L"a2i" ? load_a2i(path, file, songdata, current_inst, error)
-                                  : load_a2f(path, file, songdata, current_inst, error);
-    if (!ok) return false;
+    if (!load(path, file, songdata, current_inst, error)) return false;
     filter_loaded_names(songdata);
     return true;
+}
+
+bool ReadFileBytes(const std::wstring& path, std::vector<uint8_t>& data)
+{
+    return readFile(path, data);
 }
 
 SaveResult SaveA2i(const std::wstring& path, const FixedSongData& songdata, uint8_t current_inst)

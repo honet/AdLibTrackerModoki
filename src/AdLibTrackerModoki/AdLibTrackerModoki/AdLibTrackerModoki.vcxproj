@@ -174,6 +174,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <None Include="ui\MacroEdit.inl" />
     <None Include="ui\BankLoad.inl" />
     <None Include="ui\A2wLoad.inl" />
+    <None Include="ui\BnkLoad.inl" />
     <ClInclude Include="core\song\SongData.h" />
     <ClInclude Include="core\song\Song.h" />
     <ClInclude Include="core\song\EffectDefs.h" />

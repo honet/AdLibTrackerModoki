@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "ModuleSaver.h"
 #include "SongData.h"
@@ -29,9 +30,12 @@ void set_4op_flag(FixedSongData& songdata, uint8_t ins);
 // 4OP の組の楽器の名前の 1 文字目の印を付け直す
 void update_4op_flag_marks(FixedSongData& songdata);
 
-// 拡張子で A2I / A2F を判別して current_inst へ読み込む。失敗時は false を返し、error に理由を入れる。
+// 拡張子で A2I / A2F / CIF / FIN / INS / SBI / SGI を判別して current_inst へ読み込む。失敗時は false を返し、error に理由を入れる。
 // 読み込んだ後、FILE_open と同じく曲名・作者名・楽器名の使えない文字を置き換える。
 bool LoadInstrumentFile(const std::wstring& path, FixedSongData& songdata, uint8_t current_inst, std::wstring& error);
+
+// ファイル全体を読む (楽器バンクの一覧を作る UI 側で使う)
+bool ReadFileBytes(const std::wstring& path, std::vector<uint8_t>& data);
 
 SaveResult SaveA2i(const std::wstring& path, const FixedSongData& songdata, uint8_t current_inst);
 SaveResult SaveA2f(const std::wstring& path, const FixedSongData& songdata, uint8_t current_inst);

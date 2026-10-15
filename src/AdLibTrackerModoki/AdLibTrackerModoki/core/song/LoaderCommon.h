@@ -52,6 +52,12 @@ void import_hsc_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t*
 // 標準的な並びの楽器 (11 バイト) を取り込む (iloaders.inc の import_standard_instrument)
 void import_standard_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data);
 
+// FIN 形式の楽器 (11 バイト。波形は 3 ビット) を取り込む (iloaders.inc の import_fin_instrument。FMK でも使う)
+void import_fin_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data);
+
+// SAT 形式の楽器 (11 バイト) を取り込む (iloaders.inc の import_sat_instrument)
+void import_sat_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data);
+
 // HSC 形式のパターン (tHSC_PATTERNS) を取り込む (HscLoader.cpp。MTK でも使う)
 void import_hsc_patterns(Song& song, const uint8_t* data, uint8_t patterns, bool fix_c_note_bug);
 

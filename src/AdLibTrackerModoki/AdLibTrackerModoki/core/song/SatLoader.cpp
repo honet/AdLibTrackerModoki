@@ -58,24 +58,6 @@ namespace
     static_assert(sizeof(SatHeader2) == 1612);
     static_assert(sizeof(Sa2Header) == 2190);
 
-    void import_sat_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data)
-    {
-        Instrument& ins = at1(songdata.instr_data, inst);
-        ins.fm_data.FEEDBACK_FM = data[0] & 0x0f;
-        ins.fm_data.AM_VIB_EG_modulator = data[1];
-        ins.fm_data.AM_VIB_EG_carrier = data[2];
-        ins.fm_data.ATTCK_DEC_modulator = data[3];
-        ins.fm_data.ATTCK_DEC_carrier = data[4];
-        ins.fm_data.SUSTN_REL_modulator = data[5];
-        ins.fm_data.SUSTN_REL_carrier = data[6];
-        ins.fm_data.WAVEFORM_modulator = data[7] & 3;
-        ins.fm_data.WAVEFORM_carrier = data[8] & 3;
-        ins.fm_data.KSL_VOLUM_modulator = data[9];
-        ins.fm_data.KSL_VOLUM_carrier = data[10];
-        ins.panning = 0;
-        ins.fine_tune = 0;
-    }
-
     // 楽器名の領域 (496 バイト) から inst 番目の名前を取り出す (#16 区切り)
     std::string import_sat_instrument_name(const uint8_t* data, uint8_t inst)
     {

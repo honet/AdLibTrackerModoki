@@ -1,11 +1,11 @@
 # AdLibTrackerModoki 開発計画
 
-最終更新: 2026-10-14
+最終更新: 2026-10-15
 
 ## 現在の状況
 
-- フェーズ6e-4b (A2W の読み込みとマクロブラウザ) が完了。
-- 次の作業は 6e-5 (BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み)。
+- フェーズ6e-5 (BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み) が完了。
+- 次の作業はフェーズ6f (その他の編集機能)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -196,6 +196,19 @@
   Ctrl+M で表を付けた A2M、マクロエディタから保存した A2W 2 つと F3 / Ctrl+M を使った A2M がバイト単位で一致。画面も一致
   (画面モード 2。画面モード 0 はクローン版だけで確認)
 
+### フェーズ6e-5: 他のトラッカーの楽器ファイル・楽器バンクの取り込み
+- CIF / FIN / INS / SBI / SGI の読み込み (core/song/InstrumentFile。adt2ext3.pas の cif / fin / ins / sbi / sgi_file_loader)
+  - FM データ・panning・fine_tune だけを書き換える (SGI は楽器データ全体を 0 にしてから)。INS は大きさと内容で標準 / HSC / SAT の並びを見分ける
+    (adtrack2.ini の force_ins は既定値の 0 に固定)
+  - import_fin_instrument / import_sat_instrument を LoaderCommon へ移した
+- BNK / FIB / IBK の読み込み (ui/BnkLoad.inl。adt2ext5.pas の bnk / fib / ibk_file_loader)
+  - 進捗の窓 (LOADiNG DATA FROM BANK FiLE...、ESC で止める)、一覧 (BNK・FIB は 72 桁、IBK は 45 桁) と位置の記憶、Enter で current_inst へ取り込む
+  - 一覧で鍵盤を押すと試聴する (test_instrument_alt2)
+  - 本家と同じく temp_instrument をグローバル変数にした (FIB の取り込みで perc_voice が前の値のまま残るなど)
+- 楽器窓・楽器エディタ・マクロエディタの F3 のコモンダイアログで 8 形式を選べるようにした
+- 本家と同じキー操作で、8 形式を楽器窓から取り込んで保存した A2M 2 つ (`data/t6e5/`) がバイト単位で一致。一覧と楽器窓の画面も一致 (画面モード 2)。
+  FIB はサンプルがないため、空の項目を含むものを作って確かめた。一覧での試聴はクローン版だけで確認した
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -206,10 +219,7 @@
 
 ## 今後の計画
 
-### フェーズ6e: 楽器とマクロ
-- 6e-5 (次の作業): BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み
-
-### フェーズ6f: その他の編集機能
+### フェーズ6f: その他の編集機能 (次の作業)
 - Ctrl+T (移調)、Ctrl+R (楽器の置き換え)、Ctrl+O (オクターブ設定)
 - Ctrl+H (置換)、Ctrl+F (曲の設定)、Alt+L (行マーク設定)
 - 範囲を選んでいないときの Ctrl+B (メッセージボード) と Ctrl+X (トラックの並べ替え)

@@ -5272,6 +5272,7 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 #include "MacroEdit.inl"
 #include "BankLoad.inl"
 #include "A2wLoad.inl"
+#include "BnkLoad.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。

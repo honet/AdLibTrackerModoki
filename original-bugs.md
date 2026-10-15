@@ -59,6 +59,8 @@
 | SAT の再開位置を、For ループを抜けた後のループ変数で書き込む (未定義の値) | iloaders.inc → core/song/SatLoader.cpp | 回避 (1 回も回らない場合は -1 とみなす) |
 | エフェクト名を返す関数が、case に当てはまらない値のとき結果が未定義 | adt2ext*.pas → ui/MainScreen.cpp | 回避 (空欄) |
 | マクロエディタの表示で、case に当てはまらない値のとき前回の文字列のまま表示する | adt2ext5.pas → ui/MacroEdit.inl | 再現 |
+| FIB の一覧を作るときと Enter で取り込むとき、`temp_instrument` を 0 にせずに FM データだけを書くため、`perc_voice` に前に読んだ楽器 (BNK のパーカッションなど) の値が残り、そのまま曲の楽器に入る | adt2ext5.pas `fib_file_loader`、iloadins.inc `import_standard_instrument_alt` → ui/BnkLoad.inl | 再現 (`temp_instrument` をグローバル変数にしている) |
+| BNK / FIB / IBK の一覧の試聴は、鍵盤を押した楽器を読む前に `temp_instrument` (前回読んだ楽器) が空かどうかを見る。一覧を作るときに最後に読んだ項目が空だと鳴らない | iloadins.inc `test_instrument_alt2` → ui/BnkLoad.inl | 再現 |
 | 曲を読み込み直しても OPL エミュレータの状態をリセットしないため、前の曲の残りが次の曲の出音に混ざる | adt2unit.pas / opl3emu.pas | — (本家の録音は曲ごとに起動し直して取る) |
 
 ## 処理の誤り (結果が変わるもの)
@@ -87,6 +89,11 @@
 | A2W から楽器や表を取り込む先の表を探すとき、空きか同じ内容の表がなければ長さ 0 の表を後ろから探すが、曲ではなく読み込んだバンク (temp_songdata) の表の長さを見ている | adt2ext5.pas `get_free_arpeggio_table_idx` / `get_free_vibrato_table_idx` → ui/A2wLoad.inl | 再現 |
 | マクロエディタのアルペジオ / ビブラートの位置で F3 を押すと `_arp_vib_loader` が TRUE になり、A2W を読み込んだときにだけ FALSE に戻る。ファイル選択を取り消すか A2W 以外を読み込むと TRUE のまま残り、次に楽器窓などの F3 で A2W を開くとアルペジオ / ビブラートの窓が出る | adt2ext4.pas `MACRO_EDITOR`、adt2extn.pas `FILE_open` → ui/MacroEdit.inl、ui/BankLoad.inl | 再現 |
 | A2W の楽器マクロの窓で、FM レジスタ表の列がパーカッションで無効かどうかを、表示している楽器ではなく現在の楽器 (current_inst) で判定する | adt2ext5.pas `_dis_fmreg_col` → ui/A2wLoad.inl | 再現 |
+| BNK / FIB / IBK の一覧の項目数を使っている楽器の数 (`nm_valid`) にするが、先頭以外の使っていない項目も行に並べるため、途中に使っていない項目があると、その数だけ後ろの楽器が一覧から切れて選べない | adt2ext5.pas `bnk_file_loader` / `fib_file_loader` / `ibk_file_loader` → ui/BnkLoad.inl | 再現 |
+| FIB の一覧の右下の表示で、全体の数を `header.nmins` ではなく 128 と出す | adt2ext5.pas `fib_file_loader` → ui/BnkLoad.inl | 再現 |
+| FIB の楽器名が空 (#0 だけ) のとき、`CutStr` は #0 を取らないため DOS 名に切り替わらず、#0 が 27 個の名前になる | adt2ext5.pas `fib_file_loader` → ui/BnkLoad.inl | 再現 |
+| BNK の FEEDBACK_FM の計算 `fm XOR 1 AND 1 + ...` は、XOR が + と同じ優先順位のため `(fm XOR 1) + ...` になり、fm が 2 以上だと下位ビット以外も足される | adt2ext5.pas `import_instrument_from_data_record` → ui/BnkLoad.inl | 再現 |
+| 12 バイトより小さい INS ファイルは楽器データを何も取り込まないが、楽器名だけ変えて読み込んだことにする | adt2ext3.pas `ins_file_loader` → core/song/InstrumentFile.cpp | 再現 |
 | SDL 版の `get_chanpos` は内側のループを 1 回目で抜けるため、4OP でない試聴は 1 チャンネルでしか鳴らない (和音にならない) | adt2unit.pas `get_chanpos` → ui/InstEdit.inl | 再現 |
 
 ## 入力

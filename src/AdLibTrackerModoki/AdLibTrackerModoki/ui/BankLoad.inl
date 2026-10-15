@@ -8,6 +8,10 @@
 // バンクの一覧 (オリジナルの Menu に渡す a2b_queue) の項目は、先頭が '~' + 楽器名の先頭 9 文字 + '~' のため、
 // Menu のショートカットキーは楽器名の 1 文字目 (印) になる (オリジナルと同じ)。
 
+// 試聴・取り込みに使う楽器 (オリジナルの temp_instrument)。オリジナルと同じく、前回の内容が残ることがある
+// (BNK / FIB / IBK の取り込みと試聴は、残っている内容に左右される)
+Instrument temp_instrument{};
+
 // バンクから読み込んだデータ (オリジナルの temp_songdata)
 FixedSongData& temp_songdata()
 {
@@ -118,7 +122,8 @@ void test_instrument_alt(uint8_t /*chan*/, uint16_t fkey, bool loadMacros, bool 
 
     uint8_t channels = !p.percussion_mode ? 18 : 15;
 
-    Instrument temp_instrument{}, temp_instrument2{};
+    temp_instrument = Instrument{};
+    Instrument temp_instrument2{};
     RegisterTable temp_instrument_macro{}, temp_instrument_macro2{};
     DisFmregCol temp_instrument_dis_fmreg_col{}, temp_instrument_dis_fmreg_col2{};
     uint8_t temp2 = B(temp);
@@ -444,6 +449,9 @@ bool select_4op_destination(uint8_t index, bool alternate)
 
 bool a2b_file_loader(bool bankSelector, bool loadBankPossible);
 uint8_t a2w_file_loader(bool loadFromFile, bool loadMacros, bool bankSelector, bool loadBankPossible, bool updateCurInstr);
+bool bnk_file_loader();
+bool fib_file_loader();
+bool ibk_file_loader();
 
 // 楽器窓・楽器エディタ・マクロエディタの F3: 楽器ファイル・楽器バンクを読み込む (FILE_open の mpos = 2 の場合)。
 // 本クローン版はコモンダイアログで選ぶ。quick (楽器窓の Shift+F3) なら前回の楽器ファイルをそのまま読み込む。
@@ -458,9 +466,12 @@ void FILE_open_instrument(bool load_bank_possible, bool quick, bool a2w_only)
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = g_hwnd;
         if (!a2w_only) {
-            ofn.lpstrFilter = L"AdLib Tracker II 楽器・楽器バンク (*.a2i;*.a2f;*.a2b;*.a2w)\0*.a2i;*.a2f;*.a2b;*.a2w\0"
+            ofn.lpstrFilter = L"楽器・楽器バンク (*.a2i;*.a2f;*.a2b;*.a2w;*.bnk;*.cif;*.fib;*.fin;*.ibk;*.ins;*.sbi;*.sgi)\0"
+                              L"*.a2i;*.a2f;*.a2b;*.a2w;*.bnk;*.cif;*.fib;*.fin;*.ibk;*.ins;*.sbi;*.sgi\0"
                               L"AdLib Tracker II 楽器 (*.a2i;*.a2f)\0*.a2i;*.a2f\0"
-                              L"AdLib Tracker II 楽器バンク (*.a2b;*.a2w)\0*.a2b;*.a2w\0";
+                              L"AdLib Tracker II 楽器バンク (*.a2b;*.a2w)\0*.a2b;*.a2w\0"
+                              L"他のトラッカーの楽器 (*.cif;*.fin;*.ins;*.sbi;*.sgi)\0*.cif;*.fin;*.ins;*.sbi;*.sgi\0"
+                              L"他のトラッカーの楽器バンク (*.bnk;*.fib;*.ibk)\0*.bnk;*.fib;*.ibk\0";
         } else {
             ofn.lpstrFilter = L"AdLib Tracker II マクロ付き楽器バンク (*.a2w)\0*.a2w\0";
         }
@@ -483,7 +494,7 @@ void FILE_open_instrument(bool load_bank_possible, bool quick, bool a2w_only)
     no_status_refresh = true;
 
     bool loaded = false;
-    if (ext == "a2i" || ext == "a2f") {
+    if (ext == "a2i" || ext == "a2f" || ext == "cif" || ext == "fin" || ext == "ins" || ext == "sbi" || ext == "sgi") {
         std::wstring error;
         {
             PlayerLock lock;
@@ -502,6 +513,14 @@ void FILE_open_instrument(bool load_bank_possible, bool quick, bool a2w_only)
     } else if (ext == "a2w") {
         loaded = a2w_file_loader(true, _arp_vib_loader, true, load_bank_possible, false) != BYTE_NULL;   // w/ bank selector
         _arp_vib_loader = false;
+        if (loaded) {
+            PlayerLock lock;
+            filter_loaded_names(songdata());
+        }
+    } else if (ext == "bnk" || ext == "fib" || ext == "ibk") {
+        if (ext == "bnk") loaded = bnk_file_loader();
+        else if (ext == "fib") loaded = fib_file_loader();
+        else loaded = ibk_file_loader();
         if (loaded) {
             PlayerLock lock;
             filter_loaded_names(songdata());

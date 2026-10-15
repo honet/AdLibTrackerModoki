@@ -450,6 +450,42 @@ void import_standard_instrument(FixedSongData& songdata, uint8_t inst, const uin
     ins.fine_tune = 0;
 }
 
+void import_fin_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data)
+{
+    Instrument& ins = at1(songdata.instr_data, inst);
+    ins.fm_data.AM_VIB_EG_modulator = data[0];
+    ins.fm_data.AM_VIB_EG_carrier = data[1];
+    ins.fm_data.KSL_VOLUM_modulator = data[2];
+    ins.fm_data.KSL_VOLUM_carrier = data[3];
+    ins.fm_data.ATTCK_DEC_modulator = data[4];
+    ins.fm_data.ATTCK_DEC_carrier = data[5];
+    ins.fm_data.SUSTN_REL_modulator = data[6];
+    ins.fm_data.SUSTN_REL_carrier = data[7];
+    ins.fm_data.WAVEFORM_modulator = data[8] & 7;
+    ins.fm_data.WAVEFORM_carrier = data[9] & 7;
+    ins.fm_data.FEEDBACK_FM = data[10] & 0x0f;
+    ins.panning = 0;
+    ins.fine_tune = 0;
+}
+
+void import_sat_instrument(FixedSongData& songdata, uint8_t inst, const uint8_t* data)
+{
+    Instrument& ins = at1(songdata.instr_data, inst);
+    ins.fm_data.FEEDBACK_FM = data[0] & 0x0f;
+    ins.fm_data.AM_VIB_EG_modulator = data[1];
+    ins.fm_data.AM_VIB_EG_carrier = data[2];
+    ins.fm_data.ATTCK_DEC_modulator = data[3];
+    ins.fm_data.ATTCK_DEC_carrier = data[4];
+    ins.fm_data.SUSTN_REL_modulator = data[5];
+    ins.fm_data.SUSTN_REL_carrier = data[6];
+    ins.fm_data.WAVEFORM_modulator = data[7] & 3;
+    ins.fm_data.WAVEFORM_carrier = data[8] & 3;
+    ins.fm_data.KSL_VOLUM_modulator = data[9];
+    ins.fm_data.KSL_VOLUM_carrier = data[10];
+    ins.panning = 0;
+    ins.fine_tune = 0;
+}
+
 bool is_4op_chan(const FixedSongData& songdata, uint8_t chan)
 {
     const uint8_t f = songdata.flag_4op;

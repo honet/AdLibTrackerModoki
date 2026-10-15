@@ -2988,7 +2988,6 @@ void MACRO_EDITOR(uint8_t instr_, bool arp_vib_mode_)
 
         if (k == kF3 || k == kCtrlL) {
             // FM レジスタのマクロの位置なら楽器ファイル・楽器バンク、アルペジオ / ビブラートの位置なら A2W だけを選ぶ
-            // (BNK などの取り込みは 6e-5)
             _arp_vib_loader = !(pos < 8);
             if (_arp_vib_loader) {
                 arp_tab_selected = in_range(pos, 8, 13);
