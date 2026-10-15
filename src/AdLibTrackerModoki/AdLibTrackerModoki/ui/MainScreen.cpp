@@ -121,6 +121,35 @@ uint8_t remap_ins1 = 1;
 uint8_t remap_ins2 = 1;
 uint8_t remap_selection = 1;
 
+// トラックの並べ替え・置換 (adt2extn.pas)
+uint8_t rearrange_selection = 1;
+uint8_t replace_selection = 1;
+bool replace_prompt = false;
+
+struct ReplaceEvent
+{
+    std::string note;   // String[3] ('?' はどの値にも合う / そのまま)
+    std::string inst;   // String[2]
+    std::string fx_1;   // String[3]
+    std::string fx_2;   // String[3]
+};
+
+struct ReplaceData
+{
+    ReplaceEvent event_to_find;
+    ReplaceEvent new_event;
+};
+ReplaceData replace_data = { { "???", "??", "???", "???" }, { "???", "??", "???", "???" } };
+
+// NUKE・曲の読み込みで置換の設定を戻す
+void reset_replace_settings()
+{
+    replace_selection = 1;
+    replace_prompt = false;
+    replace_data.event_to_find = { "???", "??", "???", "???" };
+    replace_data.new_event = { "???", "??", "???", "???" };
+}
+
 std::wstring songdata_source;   // 読み込んだ (保存した) 曲のパス
 std::wstring instdata_source;   // 読み込んだ (保存した) 楽器ファイルのパス
 
@@ -1637,6 +1666,7 @@ uint8_t _patts_marked()
 }
 
 void reset_positions_on_load();
+void add_bank_position(const std::string& bank_name, int32_t bank_size, int32_t bank_position);
 
 void load_song(const std::wstring& path)
 {
@@ -1842,8 +1872,11 @@ void NUKE(uint8_t spos)
         remap_ins1 = 1;
         remap_ins2 = 1;
         remap_selection = 1;
+        reset_replace_settings();
         current_inst = 1;
         pattern_list__page = 1;
+        add_bank_position("?replace_window?pos", -1, 1);
+        add_bank_position("?replace_window?posfx", -1, 1);
         module_archived = true;
         return;
     }
@@ -3412,6 +3445,8 @@ void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
 void MACRO_BROWSER(bool instrBrowser, bool updateCurInstr);
 void TRANSPOSE();
 void REMAP();
+void REARRANGE();
+void REPLACE();
 void OCTAVE_CONTROL();
 void LINE_MARKING_SETUP();
 
@@ -3511,6 +3546,14 @@ uint16_t PATTERN_trace()
             } else if (fkey2 == kCtrlR) {
                 pause_debugging();
                 REMAP();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlH) {
+                pause_debugging();
+                REPLACE();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlX) {
+                pause_debugging();
+                REARRANGE();
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtrlO) {
                 pause_debugging();
@@ -6016,7 +6059,8 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kCtrlX:
                 if (!marking) {
-                    // トラックの並べ替え (REARRANGE) は未実装
+                    PlayerUnlock unlock;
+                    REARRANGE();
                 } else {
                     _save_pattern_to_undo();
                     clipboard.object_type = objMarkedBlock;
@@ -6133,7 +6177,12 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
             }
 
-            case kCtrlH:
+            case kCtrlH: {
+                PlayerUnlock unlock;
+                REPLACE();
+                break;
+            }
+
             case kF1:
                 // 各種画面 (未実装)
                 break;
@@ -7136,10 +7185,20 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
+            case kCtrlH: {
+                PlayerUnlock unlock;
+                REPLACE();
+                break;
+            }
+
+            case kCtrlX: {
+                PlayerUnlock unlock;
+                REARRANGE();
+                break;
+            }
+
             case kCtrlB:
             case kCtrlF:
-            case kCtrlH:
-            case kCtrlX:
             case kF1:
                 // 各種画面 (未実装)
                 break;

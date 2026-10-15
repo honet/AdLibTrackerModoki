@@ -1540,6 +1540,7 @@ void reset_positions_on_load()
     remap_ins1 = 1;
     remap_ins2 = 1;
     remap_selection = 1;
+    reset_replace_settings();
     current_inst = 1;
     pattern_list__page = 1;
     _macro_editor__pos[0] = 1;

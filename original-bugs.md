@@ -21,6 +21,7 @@
 | オーダーの 2 つのジャンプが互いを指していると止まる | オーダーをたどる処理 → ui/MainScreen.cpp | 無限ループ | 回避 (回数の上限を設ける) |
 | パターン窓で `While (chan < chan_pos) do Inc(hpos)` が止まらないことがある | PATTERN_edit → ui/MainScreen.cpp | ループの中で `chan` が変わらない | 回避 (このループを省く。止まらない場合の結果は同じ) |
 | `DietStr` が size < 3 で終わらない | stringio.pas `DietStr` → ui/StringIO.cpp | 文字列を縮める処理が進まない | 回避 (size 文字で切る) |
+| 置換 (Ctrl+H) の窓で、入力欄の位置をまだ一度も記録していない (起動直後に右キーや文字の入力だけで下の欄・PROMPT へ進んだ) 状態で、範囲の選択肢 (PATTERN など) から TAB / ↓ を押すと止まる | adt2extn.pas `REPLACE` → ui/EditTools.inl | `get_bank_position('?replace_window?posfx')` が 0 を返し、pos が 0 になる。どの分岐にも入らず getkey を呼ばないまま回り続ける | 回避 (0 のときは 1 にする) |
 | 壊れた CFF ファイルでメモリを壊して止まる | iloaders.inc (CFF の LZTYR 展開) → core/song/CffLoader.cpp | 出力の大きさを確かめていない | 回避 (出力の上限を設ける) |
 
 ## 範囲外の読み書き
@@ -46,7 +47,7 @@
 | FMK のパン値 3 で `_conv_fmk_pan[0..2]` の外を読む。パターン・楽器の数が多いと `paraptr_*` がはみ出す | iloaders.inc → core/song/FmkLoader.cpp | 回避 (0 とする) |
 | SAT の `ordr2` を範囲外で読む | iloaders.inc → core/song/SatLoader.cpp | 回避 (0 とする) |
 | 画面メモリの範囲外にも書き込む | txtscrio.pas → ui/TxtScrIO.cpp | 回避 (画面メモリ内に限る) |
-| 移調 (Ctrl+T) と楽器の置き換え (Ctrl+R) で曲全体 (SONG) を選ぶと、使っている最後のパターンの次 (`count_patterns` の値) まで処理する。128 個すべて使っていると、パターン 128 (パターンデータの後ろのメモリ) を読み書きする | adt2extn.pas `TRANSPOSE` / `REMAP` → ui/EditTools.inl | 回避 (パターン 127 まで) |
+| 移調 (Ctrl+T)・楽器の置き換え (Ctrl+R)・トラックの並べ替え (Ctrl+X)・置換 (Ctrl+H) で曲全体 (SONG) を選ぶと、使っている最後のパターンの次 (`count_patterns` の値) まで処理する。128 個すべて使っていると、パターン 128 (パターンデータの後ろのメモリ) を読み書きする | adt2extn.pas `TRANSPOSE` / `REMAP` / `REARRANGE` / `REPLACE` → ui/EditTools.inl | 回避 (パターン 127 まで) |
 
 ## 初期化していない値・前回の値が残る
 
@@ -97,6 +98,8 @@
 | 12 バイトより小さい INS ファイルは楽器データを何も取り込まないが、楽器名だけ変えて読み込んだことにする | adt2ext3.pas `ins_file_loader` → core/song/InstrumentFile.cpp | 再現 |
 | SDL 版の `get_chanpos` は内側のループを 1 回目で抜けるため、4OP でない試聴は 1 チャンネルでしか鳴らない (和音にならない) | adt2unit.pas `get_chanpos` → ui/InstEdit.inl | 再現 |
 | 楽器の置き換え (Ctrl+R) の一覧の試聴で、`INSTRUMENT_test` の instr2 に BYTE_NULL を渡すため、4OP の曲 (flag_4op が 0 でない) では楽器 255 と組にした 4OP の試聴になる。楽器 255 が空だと鳴らない | adt2extn.pas `REMAP_instr_control_proc` → ui/EditTools.inl | 再現 |
+| 置換 (Ctrl+H) で固定ノート (fixed_note_flag 付き) を置き換えるとき、新しい音名の '?' を埋めた結果が音名表にない (例: 新しい音名 `E??` で `C#4` を置き換えると `E#4`) と、`_find_note` が元のノート値 (フラグ付き) を返し、それにもう一度 fixed_note_flag を足すため別のノート値になる (ソースで確認) | adt2extn.pas `REPLACE` → ui/EditTools.inl | 再現 |
+| 置換 (Ctrl+H) で pattern_layout が 2 のとき、新しい音名にキーオフ (`^^` + #250) を入れても、実行時に #250 を '?' に変えるため `_find_note` がキーオフと見なさず、キーオフに置き換わらない (ソースで確認) | adt2extn.pas `REPLACE` → ui/EditTools.inl | 再現 |
 
 ## 入力
 
