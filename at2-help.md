@@ -1,17 +1,18 @@
-# Adlib Tracker II ヘルプ (本家版)
+# Adlib Tracker II Help (original version)
 
-本家 Adlib Tracker II 2.3.58 (SDL 版) の F1 ヘルプで表示されるテキストを Markdown にしたものです。
-元データは `original/at2_sourcecode_06-02-2026/adt2text.pas` の `help_data` です。
+This is the text shown by the F1 help of the original Adlib Tracker II 2.3.58 (SDL version), converted to Markdown.
+The source data is `help_data` in `original/at2_sourcecode_06-02-2026/adt2text.pas`.
+A Japanese translation is available in [at2-help.ja.md](at2-help.ja.md).
 
-- 本文は本家の英語表記 (`iNSTRUMENT` のような小文字 i を含む) をそのまま残しています。
-- 本家の表示色は次のように置き換えています: キー色 (`~...~`) → `コード`、強調色 (`` `...` ``) → **太字**。
-- 本家の独自フォントの文字は Unicode に置き換えています (矢印 ↑↓←→、`2OP` / `4OP`、`Hz`、`×` など)。
-  `¹⁄` / `²⁄` は 4OP 楽器の 1 つ目 / 2 つ目のチャンネルを表す記号です。
-- DOS 版だけの行 (`{$IFDEF GO32V2}`) は除き、SDL 版 (Windows) の内容を採用しています。
-- 一部の行は `adtrack2.ini` の設定で表示が変わります。ここでは既定値で書き、もう一方を注記しています。
-- `<a id="...">` は本家のヘルプのトピック名 (`HELP('topic')` で開く位置) です。
+- The help text keeps the original English wording as is (including the lowercase "i" in words like `iNSTRUMENT`).
+- The original display colors are replaced as follows: key color (`~...~`) → `code`, highlight color (`` `...` ``) → **bold**.
+- Characters of the original custom font are replaced with Unicode characters (arrows ↑↓←→, `2OP` / `4OP`, `Hz`, `×`, etc.).
+  `¹⁄` / `²⁄` are the symbols for the 1st / 2nd channel of a 4OP instrument.
+- Lines for the DOS version only (`{$IFDEF GO32V2}`) are left out; the SDL version (Windows) content is used.
+- Some lines change depending on settings in `adtrack2.ini`. They are written with the default settings, and the other variant is given in a note.
+- `<a id="...">` is the topic name in the original help (the position opened by `HELP('topic')`).
 
-## 目次
+## Contents
 
 - [GENERAL KEY REFERENCE](#general)
   - [WHEN iN NOTE RECORDER MODE](#note_recorder)
@@ -53,12 +54,12 @@
 | `F7` | Stop |
 | `F8` | Play song from current pattern or order |
 | `F9` | Play current pattern or order only |
-| `[Ctrl] F8` | @F8 from current line ※1 |
-| `[Ctrl] F9` | @F9 from current line ※1 |
-| `[Alt] F6` | Single-play pattern ※1 |
-| `[Alt] F5` | @F5 ※2 |
-| `[Alt] F8` | @F8 ※2 |
-| `[Alt] F9` | @F9 ※2 |
+| `[Ctrl] F8` | @F8 from current line (note 1) |
+| `[Ctrl] F9` | @F9 from current line (note 1) |
+| `[Alt] F6` | Single-play pattern (note 1) |
+| `[Alt] F5` | @F5 (note 2) |
+| `[Alt] F8` | @F8 (note 2) |
+| `[Alt] F9` | @F9 (note 2) |
 | `[Shift] F2` | Quick Save |
 | `[Shift] F3` | Quick Load |
 | `[Shift] F5` | @F5 with no Trace |
@@ -70,11 +71,13 @@
 | `[Ctrl] Home,End` | Skip to previous/next pattern while Tracing |
 | `+,-` | Same as above; play pattern from start |
 
-- ※1 `[Ctrl] F8` / `[Ctrl] F9` / `[Alt] F6` の 3 行は本家では括弧でまとめられ、"(Pattern Editor)" "(`Shift` toggles trace)" と添えられています。
-- ※2 `[Alt] F5` / `[Alt] F8` / `[Alt] F9` の 3 行は本家では括弧でまとめられ、"without synchronization" と添えられています。
-  `adtrack2.ini` で `nosync_by_default=on` のときは "with synchronization" になります。
-- `[Shift] F5` / `[Shift] F8` / `[Shift] F9` の "with no Trace" は `trace_by_default=on` (既定値) のときの表示です。
-  `trace_by_default=off` のときは "with Trace" になります。
+- Note 1: In the original, the `[Ctrl] F8` / `[Ctrl] F9` / `[Alt] F6` lines are grouped by a bracket
+  labeled "(Pattern Editor)" and "(`Shift` toggles trace)".
+- Note 2: In the original, the `[Alt] F5` / `[Alt] F8` / `[Alt] F9` lines are grouped by a bracket
+  labeled "without synchronization".
+  With `nosync_by_default=on` in `adtrack2.ini`, it reads "with synchronization" instead.
+- "with no Trace" for `[Shift] F5` / `[Shift] F8` / `[Shift] F9` is shown with `trace_by_default=on` (the default).
+  With `trace_by_default=off`, it reads "with Trace" instead.
 
 <a id="note_recorder"></a>
 
@@ -1120,7 +1123,7 @@ shown in the following table:
 | `Pxy` | `0xy` & FiNE VOLUME SLiDE | xy=up\_speed\|down\_speed | [1-F] | `C` |
 | `Qxy` | MULTi RETRiG NOTE | xy=interval\|vol\_change | [1-F] |  |
 
-`Qxy` の y (vol\_change):
+y of `Qxy` (vol\_change):
 
 | y | Volume change | y | Volume change |
 |---|---|---|---|
