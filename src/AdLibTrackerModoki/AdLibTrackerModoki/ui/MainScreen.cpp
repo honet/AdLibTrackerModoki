@@ -15,6 +15,7 @@
 
 #include "DialogIO.h"
 #include "MainScreenData.h"
+#include "MenuLib.h"
 #include "StringIO.h"
 #include "TxtScrIO.h"
 #include "../Resource.h"
@@ -114,6 +115,12 @@ bool _realtime_gfx_no_update = false;
 uint8_t pattern_list__page = 1;
 uint8_t pattern2use = BYTE_NULL;   // 一覧から A2P を保存・読み込むときのパターン (BYTE_NULL なら pattern_patt)
 
+// 楽器の置き換え (adt2extn.pas)
+uint8_t remap_mtype = 1;
+uint8_t remap_ins1 = 1;
+uint8_t remap_ins2 = 1;
+uint8_t remap_selection = 1;
+
 std::wstring songdata_source;   // 読み込んだ (保存した) 曲のパス
 std::wstring instdata_source;   // 読み込んだ (保存した) 楽器ファイルのパス
 
@@ -129,6 +136,8 @@ const char* const* patt_win = patt_win_tracks[0];   // patt_win[1..5] は patt_w
 bool blink_flag = false;
 // adt2unit.pas: マクロの試聴中の PREViEW / LOOP の表示 (試聴中だけ設定する)
 void (*macro_preview_indic_proc)(uint8_t state) = nullptr;
+// adt2sys.pas: ダイアログの BPM の表示 (行の印の設定などで設定する)
+void (*_show_bpm_realtime_proc)() = nullptr;
 int32_t blink_ticks = 0;
 bool _NRECM_blink_flag = false;
 int32_t _NRECM_blink_ticks = 0;
@@ -1517,6 +1526,8 @@ void realtime_gfx_poll_proc()
         if (macro_preview_indic_proc) macro_preview_indic_proc(2);
     }
 
+    if (_show_bpm_realtime_proc) _show_bpm_realtime_proc();
+
     decay_bars_refresh();
     if (do_synchronize) synchronize_screen();
     if (_name_scrl_pending_frames > 0) --_name_scrl_pending_frames;
@@ -1827,6 +1838,10 @@ void NUKE(uint8_t spos)
         POSITIONS_reset();
         std::fill(std::begin(p.channel_flag), std::end(p.channel_flag), true);
         track_notes = false;
+        remap_mtype = 1;
+        remap_ins1 = 1;
+        remap_ins2 = 1;
+        remap_selection = 1;
         current_inst = 1;
         pattern_list__page = 1;
         module_archived = true;
@@ -3395,6 +3410,10 @@ uint8_t INSTRUMENT_CONTROL();
 void INSTRUMENT_CONTROL_edit();
 void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
 void MACRO_BROWSER(bool instrBrowser, bool updateCurInstr);
+void TRANSPOSE();
+void REMAP();
+void OCTAVE_CONTROL();
+void LINE_MARKING_SETUP();
 
 uint16_t PATTERN_trace()
 {
@@ -3485,6 +3504,24 @@ uint16_t PATTERN_trace()
                 pause_debugging();
                 MACRO_BROWSER(true, true);
                 keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlT) {
+                pause_debugging();
+                TRANSPOSE();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlR) {
+                pause_debugging();
+                REMAP();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlO) {
+                pause_debugging();
+                OCTAVE_CONTROL();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kAltL) {
+                pause_debugging();
+                LINE_MARKING_SETUP();
+                PlayerLock lock;
+                PATTERN_ORDER_page_refresh(pattord_page);
+                PATTERN_page_refresh(pattern_page);
             } else if (fkey2 == kCtENTR) {
                 jump_to_next_order();
             } else if (fkey2 == kF10) {
@@ -5273,6 +5310,7 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 #include "BankLoad.inl"
 #include "A2wLoad.inl"
 #include "BnkLoad.inl"
+#include "EditTools.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。
@@ -5703,7 +5741,12 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
 
             case kAltL:
-                // 行の印の設定 (LINE_MARKING_SETUP) は未実装
+                {
+                    PlayerUnlock unlock;
+                    LINE_MARKING_SETUP();
+                }
+                PATTERN_ORDER_page_refresh(pattord_page);
+                PATTERN_page_refresh(pattern_page);
                 break;
 
             case kAltM:
@@ -6072,9 +6115,24 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
             }
 
-            case kCtrlT:
-            case kCtrlR:
-            case kCtrlO:
+            case kCtrlT: {
+                PlayerUnlock unlock;
+                TRANSPOSE();
+                break;
+            }
+
+            case kCtrlR: {
+                PlayerUnlock unlock;
+                REMAP();
+                break;
+            }
+
+            case kCtrlO: {
+                PlayerUnlock unlock;
+                OCTAVE_CONTROL();
+                break;
+            }
+
             case kCtrlH:
             case kF1:
                 // 各種画面 (未実装)
@@ -6964,7 +7022,12 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
 
             case kAltL:
-                // 行の印の設定 (LINE_MARKING_SETUP) は未実装
+                {
+                    PlayerUnlock unlock;
+                    LINE_MARKING_SETUP();
+                }
+                PATTERN_ORDER_page_refresh(pattord_page);
+                PATTERN_page_refresh(pattern_page);
                 break;
 
             case kAltM:
@@ -7055,10 +7118,25 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
-            case kCtrlT:
-            case kCtrlR:
+            case kCtrlT: {
+                PlayerUnlock unlock;
+                TRANSPOSE();
+                break;
+            }
+
+            case kCtrlR: {
+                PlayerUnlock unlock;
+                REMAP();
+                break;
+            }
+
+            case kCtrlO: {
+                PlayerUnlock unlock;
+                OCTAVE_CONTROL();
+                break;
+            }
+
             case kCtrlB:
-            case kCtrlO:
             case kCtrlF:
             case kCtrlH:
             case kCtrlX:

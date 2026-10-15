@@ -1536,6 +1536,10 @@ void reset_positions_on_load()
     track_notes = false;
     track_chan_start = 1;
     nm_track_chan = 1;
+    remap_mtype = 1;
+    remap_ins1 = 1;
+    remap_ins2 = 1;
+    remap_selection = 1;
     current_inst = 1;
     pattern_list__page = 1;
     _macro_editor__pos[0] = 1;

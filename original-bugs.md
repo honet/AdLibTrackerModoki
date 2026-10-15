@@ -46,6 +46,7 @@
 | FMK のパン値 3 で `_conv_fmk_pan[0..2]` の外を読む。パターン・楽器の数が多いと `paraptr_*` がはみ出す | iloaders.inc → core/song/FmkLoader.cpp | 回避 (0 とする) |
 | SAT の `ordr2` を範囲外で読む | iloaders.inc → core/song/SatLoader.cpp | 回避 (0 とする) |
 | 画面メモリの範囲外にも書き込む | txtscrio.pas → ui/TxtScrIO.cpp | 回避 (画面メモリ内に限る) |
+| 移調 (Ctrl+T) と楽器の置き換え (Ctrl+R) で曲全体 (SONG) を選ぶと、使っている最後のパターンの次 (`count_patterns` の値) まで処理する。128 個すべて使っていると、パターン 128 (パターンデータの後ろのメモリ) を読み書きする | adt2extn.pas `TRANSPOSE` / `REMAP` → ui/EditTools.inl | 回避 (パターン 127 まで) |
 
 ## 初期化していない値・前回の値が残る
 
@@ -95,6 +96,7 @@
 | BNK の FEEDBACK_FM の計算 `fm XOR 1 AND 1 + ...` は、XOR が + と同じ優先順位のため `(fm XOR 1) + ...` になり、fm が 2 以上だと下位ビット以外も足される | adt2ext5.pas `import_instrument_from_data_record` → ui/BnkLoad.inl | 再現 |
 | 12 バイトより小さい INS ファイルは楽器データを何も取り込まないが、楽器名だけ変えて読み込んだことにする | adt2ext3.pas `ins_file_loader` → core/song/InstrumentFile.cpp | 再現 |
 | SDL 版の `get_chanpos` は内側のループを 1 回目で抜けるため、4OP でない試聴は 1 チャンネルでしか鳴らない (和音にならない) | adt2unit.pas `get_chanpos` → ui/InstEdit.inl | 再現 |
+| 楽器の置き換え (Ctrl+R) の一覧の試聴で、`INSTRUMENT_test` の instr2 に BYTE_NULL を渡すため、4OP の曲 (flag_4op が 0 でない) では楽器 255 と組にした 4OP の試聴になる。楽器 255 が空だと鳴らない | adt2extn.pas `REMAP_instr_control_proc` → ui/EditTools.inl | 再現 |
 
 ## 入力
 

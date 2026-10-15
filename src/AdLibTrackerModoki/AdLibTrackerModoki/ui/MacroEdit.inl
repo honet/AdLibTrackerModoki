@@ -3018,8 +3018,14 @@ void MACRO_EDITOR(uint8_t instr_, bool arp_vib_mode_)
             continue;
         }
 
-        if (k == kCtrlO || k == kF1) {
-            // オクターブ設定 (Ctrl+O)・ヘルプ (F1) は 6f で実装する。開き直す
+        if (k == kCtrlO) {
+            PlayerUnlock unlock;
+            OCTAVE_CONTROL();
+            continue;
+        }
+
+        if (k == kF1) {
+            // ヘルプ (F1) は 6f-4 で実装する。開き直す
             continue;
         }
         break;

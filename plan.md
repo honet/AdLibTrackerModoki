@@ -4,8 +4,8 @@
 
 ## 現在の状況
 
-- フェーズ6e-5 (BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI の取り込み) が完了。
-- 次の作業はフェーズ6f (その他の編集機能)。
+- フェーズ6f-1 (移調・楽器の置き換え・オクターブ・行の印の設定) が完了。
+- 次の作業はフェーズ6f-2 (置換とトラックの並べ替え)。
 - `data/` フォルダ (本家で作った確認用ファイル) はコミットしていない。
 
 ## 確認の方法 (共通)
@@ -209,6 +209,15 @@
 - 本家と同じキー操作で、8 形式を楽器窓から取り込んで保存した A2M 2 つ (`data/t6e5/`) がバイト単位で一致。一覧と楽器窓の画面も一致 (画面モード 2)。
   FIB はサンプルがないため、空の項目を含むものを作って確かめた。一覧での試聴はクローン版だけで確認した
 
+### フェーズ6f-1: 移調・楽器の置き換え・オクターブ・行の印の設定
+- TRANSPOSE (Ctrl+T): 移調のメニュー、TAB による PATTERN/SONG と TRACK/BLOCK の切り替え、選んでいる組の強調 (transpose__control_proc)
+- REMAP (Ctrl+R): 楽器の一覧を 2 つ並べる窓 (ui/EditTools.inl)。menulib1.pas / menulib2.pas を MenuLib クラスの 2 つのインスタンスとして移植 (ui/MenuLib)。
+  一覧での試聴、PATTERN / SONG / TRACK / BLOCK の範囲、Ctrl+O で開き直す
+- OCTAVE_CONTROL (Ctrl+O): パターン窓・オーダー窓・トレース中・楽器窓・楽器エディタ・マクロエディタ・REMAP から
+- LINE_MARKING_SETUP (Alt+L): BPM の表示 (_show_bpm_realtime_proc を realtime_gfx_poll_proc から呼ぶ)
+- トレース中の Ctrl+T / Ctrl+R / Ctrl+O / Alt+L もつないだ
+- 本家と同じキー操作で nightdrv.a2m を編集した A2M (`data/t6f1/`) がバイト単位で一致。画面も一致 (画面モード 2)
+
 ### 実機演奏 (27d0c14, 2c1e7bf)
 - IPlayerDriver: 再生駆動部の共通インターフェース (SampleClockDriver も実装)
 - TimerDriver: 高精度ウェイタブルタイマーで timerHz() 周期に timerTick() と flush() を呼ぶ
@@ -219,11 +228,10 @@
 
 ## 今後の計画
 
-### フェーズ6f: その他の編集機能 (次の作業)
-- Ctrl+T (移調)、Ctrl+R (楽器の置き換え)、Ctrl+O (オクターブ設定)
-- Ctrl+H (置換)、Ctrl+F (曲の設定)、Alt+L (行マーク設定)
-- 範囲を選んでいないときの Ctrl+B (メッセージボード) と Ctrl+X (トラックの並べ替え)
-- F1 (ヘルプ)
+### フェーズ6f: その他の編集機能 (6f-1 は完了)
+- 6f-2 (次の作業): Ctrl+H (置換 REPLACE)、範囲を選んでいないときの Ctrl+X (トラックの並べ替え REARRANGE)
+- 6f-3: Ctrl+F (曲の設定 SONG_VARIABLES)
+- 6f-4: 範囲を選んでいないときの Ctrl+B (メッセージボード)、F1 (ヘルプ。これまで開き直すだけにしていた F1 もすべてつなぐ)
 
 まだ実装していないフェーズのキーは何もしない。
 

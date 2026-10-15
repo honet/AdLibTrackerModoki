@@ -2539,8 +2539,11 @@ void INSTRUMENT_CONTROL_edit()
         case kCtrlE:
             MACRO_EDITOR(current_inst, true);
             break;
+        case kCtrlO:
+            OCTAVE_CONTROL();
+            break;
         default:
-            // F1 (ヘルプ)・Ctrl+O (オクターブ設定) は未実装
+            // F1 (ヘルプ) は未実装
             break;
         }
     }
@@ -2715,8 +2718,13 @@ uint8_t INSTRUMENT_CONTROL()
             MACRO_BROWSER(true, true);
             continue;
         }
-        if (key == kCtrlO || key == kF1) {
-            // オクターブ設定 (OCTAVE_CONTROL) とヘルプ (HELP) は未実装
+        if (key == kCtrlO) {
+            OCTAVE_CONTROL();
+            mn_environment.keystroke = BYTE_NULL;
+            continue;
+        }
+        if (key == kF1) {
+            // ヘルプ (HELP) は未実装
             continue;
         }
         if (key == kF2 || key == kCtrlS) {
