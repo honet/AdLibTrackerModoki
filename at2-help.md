@@ -8,6 +8,8 @@ A Japanese translation is available in [at2-help.ja.md](at2-help.ja.md).
 - The original display colors are replaced as follows: key color (`~...~`) → `code`, highlight color (`` `...` ``) → **bold**.
 - Characters of the original custom font are replaced with Unicode characters (arrows ↑↓←→, `2OP` / `4OP`, `Hz`, `×`, etc.).
   `¹⁄` / `²⁄` are the symbols for the 1st / 2nd channel of a 4OP instrument.
+- The diagrams of Waveform select, Connection type and Sustain are screenshots of the original's help screen
+  (in `at2-help-images/`), because their custom-font line drawing does not survive as text.
 - Lines for the DOS version only (`{$IFDEF GO32V2}`) are left out; the SDL version (Windows) content is used.
 - Some lines change depending on settings in `adtrack2.ini`. They are written with the default settings, and the other variant is given in a note.
 - `<a id="...">` is the topic name in the original help (the position opened by `HELP('topic')`).
@@ -718,123 +720,35 @@ The first is closest to pure sine wave, the last is most distorted.
 
 **[0] SiNE**
 
-```
-     ▲
-     │
-     │     __                      __
-     │   /    \                  /    \
-     │ /        \              /        \
-    ─┼───────────┬───────────┬───────────┬───────────┬───►
-     │             \        /              \        /
-     │               \    /                  \    /
-     │                 ‾‾                      ‾‾
-     │          1/2          1          3/2          2  pi
-```
+![Waveform [0] SiNE](at2-help-images/waveform0.png)
 
 **[1] HALF-SiNE**
 
-```
-     ▲
-     │
-     │     __                      __
-     │   /    \                  /    \
-     │ /        \              /        \
-    ─┼───────────┬───────────┬───────────┬───────────┬───►
-     │
-     │          1/2          1          3/2          2  pi
-     │
-     │
-```
+![Waveform [1] HALF-SiNE](at2-help-images/waveform1.png)
 
 **[2] ABS-SiNE**
 
-```
-     ▲
-     │
-     │     __         __           __         __
-     │   /    \     /    \       /    \     /    \
-     │ /        \ /        \   /        \ /        \
-    ─┼───────────┬───────────┬───────────┬───────────┬───►
-     │
-     │          1/2          1          3/2          2  pi
-     │
-     │
-```
+![Waveform [2] ABS-SiNE](at2-help-images/waveform2.png)
 
 **[3] PULSE-SiNE**
 
-```
-     ▲
-     │
-     │    _           _           _           _
-     │  /  |        /  |        /  |        /  |
-     │/    |      /    |      /    |      /    |
-    ─┼─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬───►
-     │
-     │    1/4    1/2   3/4   1    5/4   3/2   7/4    2  pi
-     │
-     │
-```
+![Waveform [3] PULSE-SiNE](at2-help-images/waveform3.png)
 
 **[4] SiNE, EVEN PERiODS ONLY (EPO)**
 
-```
-     ▲
-     │
-     │
-     │ /‾\                     /‾\
-     │/   \                   /   \
-    ─┼─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬───►
-     │      \   /                   \   /
-     │       \_/                     \_/
-     │
-     │    1/4   1/2   3/4    1    5/4   3/2   7/4    2  pi
-```
+![Waveform [4] SiNE, EPO](at2-help-images/waveform4.png)
 
 **[5] ABS-SiNE, EVEN PERiODS ONLY (EPO)**
 
-```
-     ▲
-     │
-     │
-     │ /‾\   /‾\               /‾\   /‾\
-     │/   \ /   \             /   \ /   \
-    ─┼─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┬───►
-     │
-     │    1/4   1/2   3/4    1    5/4   3/2   7/4    2  pi
-     │
-     │
-```
+![Waveform [5] ABS-SiNE, EPO](at2-help-images/waveform5.png)
 
 **[6] SQUARE**
 
-```
-     ▲
-     │
-     │
-     ├-----------┐           ┌-----------┐
-     │           │           │           │
-    ─┼───────────┼───────────┼───────────┼───────────┬───►
-     │           │           │           │           │
-     │           └-----------┘           └-----------┘
-     │
-     │          1/2          1          3/2          2  pi
-```
+![Waveform [6] SQUARE](at2-help-images/waveform6.png)
 
 **[7] DERiVED SQUARE**
 
-```
-     ▲
-     │
-     │
-     │\__                    │\__
-     │   ‾‾‾───__            │   ‾‾‾‾──__
-    ─┼───────────┼───────────┼───────────┼───────────┬───►
-     │            ‾‾───___   │            ‾‾──____   │
-     │                    ‾‾\│                    ‾‾\│
-     │
-     │          1/2          1          3/2          2  pi
-```
+![Waveform [7] DERiVED SQUARE](at2-help-images/waveform7.png)
 
 ### Key scaling level (KSL)
 
@@ -878,32 +792,11 @@ Additive synthesis means that both slots produce sound on their own.
 
 **[FM] FREQUENCY MODULATiON**
 
-```
-        ┌────────────┐
-        │            │
-        ▼    ╔════╗  │         ╔════╗
- P1 ──►(+)──►║ MO ╟──┴──►(+)──►║ CA ╟──► OUT
-             ╚════╝       ▲    ╚════╝
-                          │
-
-                          P2
-```
+![Connection [FM]](at2-help-images/connection-fm.png)
 
 **[ADDiTiVE SYNTHESiS] AM**
 
-```
-        ┌────────────┐
-        │            │
-        ▼    ╔════╗  │
- P1 ──►(+)──►║ MO ╟──┴────┐
-             ╚════╝       │
-                          ▼
-                         (+)──► OUT
-                          ▲
-             ╔════╗       │
- P2 ────────►║ CA ╟───────┘
-             ╚════╝
-```
+![Connection [AM]](at2-help-images/connection-am.png)
 
 The parameter corresponds either with carrier and modulator, therefore  
 it is listed only once (within the carrier slot).  
@@ -917,78 +810,19 @@ the connection of the 4-op instrument as shown below:
 
 **[FM/FM]**
 
-```
-        ┌────────────┐
-        │            │
-        ▼    ╔════╗  │         ╔════╗         ╔════╗         ╔════╗
- P1 ──►(+)──►║ M1 ╟──┴──►(+)──►║ C1 ╟──►(+)──►║ M2 ╟──►(+)──►║ C2 ╟──► OUT
-             ╚════╝       ▲    ╚════╝    ▲    ╚════╝    ▲    ╚════╝
-                          │              │              │
-
-                          P2             P3             P4
-```
+![Connection [FM/FM]](at2-help-images/connection-fm-fm.png)
 
 **[FM/AM]** `(*)`
 
-```
-        ┌────────────┐
-        │            │
-        ▼    ╔════╗  │         ╔════╗
- P1 ──►(+)──►║ M1 ╟──┴──►(+)──►║ C1 ╟────┐
-             ╚════╝       ▲    ╚════╝    │
-                          │              │
-                                         ▼
-                          P2            (+)──► OUT
-                                         ▲
-                                         │
-             ╔════╗            ╔════╗    │
- P3 ────────►║ M2 ╟─────►(+)──►║ C2 ╟────┘
-             ╚════╝       ▲    ╚════╝
-                          │
-
-                          P4
-```
+![Connection [FM/AM]](at2-help-images/connection-fm-am.png)
 
 **[AM/FM]** `(*)`
 
-```
-        ┌────────────┐
-        │            │
-        ▼    ╔════╗  │
- P1 ──►(+)──►║ M1 ╟──┴──────────────────────────────────┐
-             ╚════╝                                     │
-                                                        │
-                                                        │
-                                                        │
-             ╔════╗            ╔════╗         ╔════╗    ▼
- P2 ────────►║ C1 ╟─────►(+)──►║ M2 ╟──►(+)──►║ C2 ╟──►(+)──► OUT
-             ╚════╝       ▲    ╚════╝    ▲    ╚════╝
-                          │              │
-
-                          P3             P4
-```
+![Connection [AM/FM]](at2-help-images/connection-am-fm.png)
 
 **[AM/AM]**
 
-```
-        ┌────────────┐
-        │            │
-        ▼    ╔════╗  │
- P1 ──►(+)──►║ M1 ╟──┴───────────────────┐
-             ╚════╝                      │
-                                         │
-                                         │
-                                         │
-             ╔════╗            ╔════╗    ▼
- P2 ─────────║ C1 ╟─────►(+)──►║ M2 ╟──►(+)──► OUT
-             ╚════╝       ▲    ╚════╝    ▲
-                          │              │
-                                         │
-                          P3             │
-             ╔════╗                      │
- P4 ────────►║ C2 ╟──────────────────────┘
-             ╚════╝
-```
+![Connection [AM/AM]](at2-help-images/connection-am-am.png)
 
 ### (*) REMARK ABOUT 4OP CONNECTiONS FM/AM AND AM/FM
 
@@ -1032,31 +866,7 @@ When set, the sustain level of the voice is maintained until released.
 When clear, the sound begins to decay immediately after hitting  
 the sustain phase.
 
-```
-[OFF]                /\  DR
-                   /    \
-                 /     ...\...SL
-           AR  /            \
-             /                \  RR
-           /                    \
-      _ _/                        \_ _ _
-         .
-         :
-         ┌────────────────────────────────────────
-      ───┘     KEY ON
-
-[ON]                 /\  DR
-                   /    \      SL
-                 /        \ _ _ _ _ _
-           AR  /                      \
-             /                       :  \  RR
-           /                         :    \
-      _ _/                           :      \_ _ _
-         .                           :
-         :                           :
-         ┌───────────────────────────┐  KEY OFF
-      ───┘     KEY ON                └────────────
-```
+![Sustain [OFF] / [ON]](at2-help-images/sustain.png)
 
 ### Frequency data multiplier
 
