@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="AdLibTrackerModoki/AdLibTrackerModoki.vcxproj" />
+  <Project Path="AdLibTrackerModoki/AdLibTrackerModoki.vcxproj" Id="2f888811-7461-4586-9ab6-8a0e665eb484" />
 </Solution>
