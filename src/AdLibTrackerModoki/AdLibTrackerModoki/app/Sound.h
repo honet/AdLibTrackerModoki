@@ -15,6 +15,7 @@ enum class EmulatorType
 {
     At2,       // 本家と同じ出音の AT2 互換エミュレータ (既定)
     Nuked,     // Nuked OPL3 1.8
+    Ymfm,      // ymfm YMF262
     Hardware,  // OPL3 実機
 };
 

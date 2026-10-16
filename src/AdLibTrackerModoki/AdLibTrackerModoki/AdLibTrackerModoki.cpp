@@ -180,10 +180,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 switch (sound_emulator()) {
                 case EmulatorType::At2: emu = IDM_EMU_AT2; break;
                 case EmulatorType::Nuked: emu = IDM_EMU_NUKED; break;
+                case EmulatorType::Ymfm: emu = IDM_EMU_YMFM; break;
                 case EmulatorType::Hardware: emu = IDM_EMU_HARDWARE; break;
                 }
-                // 範囲はメニュー内の項目位置で決まる (AT2〜実機が並んでいること)
-                CheckMenuRadioItem(hMenu, IDM_EMU_AT2, IDM_EMU_HARDWARE, emu, MF_BYCOMMAND);
+                // ID が連番でないため CheckMenuRadioItem の範囲指定は使えない。1 項目ずつ付け外しする
+                for (UINT id : { IDM_EMU_AT2, IDM_EMU_NUKED, IDM_EMU_YMFM, IDM_EMU_HARDWARE }) {
+                    MENUITEMINFOW mii = { sizeof(mii) };
+                    mii.fMask = MIIM_FTYPE | MIIM_STATE;
+                    if (!GetMenuItemInfoW(hMenu, id, FALSE, &mii)) continue;
+                    mii.fType |= MFT_RADIOCHECK;
+                    mii.fState = (mii.fState & ~MFS_CHECKED) | (id == emu ? MFS_CHECKED : MFS_UNCHECKED);
+                    SetMenuItemInfoW(hMenu, id, FALSE, &mii);
+                }
             }
         }
         break;

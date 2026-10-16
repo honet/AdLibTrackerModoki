@@ -5,6 +5,7 @@
 
 #include "../core/opl/Opl3Emulator.h"
 #include "../core/opl/Opl3EmulatorAt2.h"
+#include "../core/opl/Opl3EmulatorYmfm.h"
 #include "../core/player/A2Player.h"
 #include "../core/player/SampleClockDriver.h"
 #include "../core/song/ModuleLoader.h"
@@ -18,6 +19,7 @@ namespace
     EmulatorType g_emulatorType = EmulatorType::At2;
     std::unique_ptr<Opl3EmulatorAt2> g_emulatorAt2;
     std::unique_ptr<Opl3Emulator> g_emulatorNuked;
+    std::unique_ptr<Opl3EmulatorYmfm> g_emulatorYmfm;
     std::unique_ptr<Opl3Hardware> g_hardware;
     IOplDevice* g_oplDevice = nullptr;
     IAudioSource* g_oplSource = nullptr;
@@ -32,14 +34,22 @@ namespace
     bool start_emulator()
     {
         const uint32_t sampleRate = Opl3EmulatorAt2::NativeSampleRate;
-        if (g_emulatorType == EmulatorType::At2) {
-            g_emulatorAt2 = std::make_unique<Opl3EmulatorAt2>();
-            g_oplDevice = g_emulatorAt2.get();
-            g_oplSource = g_emulatorAt2.get();
-        } else {
+        switch (g_emulatorType) {
+        case EmulatorType::Nuked:
             g_emulatorNuked = std::make_unique<Opl3Emulator>(sampleRate);
             g_oplDevice = g_emulatorNuked.get();
             g_oplSource = g_emulatorNuked.get();
+            break;
+        case EmulatorType::Ymfm:
+            g_emulatorYmfm = std::make_unique<Opl3EmulatorYmfm>();
+            g_oplDevice = g_emulatorYmfm.get();
+            g_oplSource = g_emulatorYmfm.get();
+            break;
+        default:
+            g_emulatorAt2 = std::make_unique<Opl3EmulatorAt2>();
+            g_oplDevice = g_emulatorAt2.get();
+            g_oplSource = g_emulatorAt2.get();
+            break;
         }
 
         g_player = std::make_unique<A2Player>(*g_oplDevice);
@@ -107,6 +117,7 @@ void sound_done()
     g_oplSource = nullptr;
     g_emulatorAt2.reset();
     g_emulatorNuked.reset();
+    g_emulatorYmfm.reset();
     g_hardware.reset();
 }
 

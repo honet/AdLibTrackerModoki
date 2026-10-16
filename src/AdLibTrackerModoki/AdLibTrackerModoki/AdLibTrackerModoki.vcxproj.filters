@@ -40,6 +40,9 @@
     <Filter Include="third_party\nukedopl3">
       <UniqueIdentifier>{e5e5f6d6-a654-4ad1-be7e-afd6fd87cfbc}</UniqueIdentifier>
     </Filter>
+    <Filter Include="third_party\ymfm">
+      <UniqueIdentifier>{3b7c2f1e-9d4a-4e6b-8c51-2a0f7d9e6b14}</UniqueIdentifier>
+    </Filter>
     <Filter Include="core\song">
       <UniqueIdentifier>{04f9b99b-c316-4180-99ba-c8db6ca7054b}</UniqueIdentifier>
     </Filter>
@@ -183,6 +186,27 @@
     <ClInclude Include="third_party\nukedopl3\opl3.h">
       <Filter>third_party\nukedopl3</Filter>
     </ClInclude>
+    <ClInclude Include="core\opl\Opl3EmulatorYmfm.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\ymfm\ymfm.h">
+      <Filter>third_party\ymfm</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\ymfm\ymfm_adpcm.h">
+      <Filter>third_party\ymfm</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\ymfm\ymfm_fm.h">
+      <Filter>third_party\ymfm</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\ymfm\ymfm_fm.ipp">
+      <Filter>third_party\ymfm</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\ymfm\ymfm_opl.h">
+      <Filter>third_party\ymfm</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\ymfm\ymfm_pcm.h">
+      <Filter>third_party\ymfm</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AdLibTrackerModoki.cpp">
@@ -304,6 +328,18 @@
     </ClCompile>
     <ClCompile Include="third_party\nukedopl3\opl3.c">
       <Filter>third_party\nukedopl3</Filter>
+    </ClCompile>
+    <ClCompile Include="core\opl\Opl3EmulatorYmfm.cpp">
+      <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="third_party\ymfm\ymfm_adpcm.cpp">
+      <Filter>third_party\ymfm</Filter>
+    </ClCompile>
+    <ClCompile Include="third_party\ymfm\ymfm_opl.cpp">
+      <Filter>third_party\ymfm</Filter>
+    </ClCompile>
+    <ClCompile Include="third_party\ymfm\ymfm_pcm.cpp">
+      <Filter>third_party\ymfm</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
