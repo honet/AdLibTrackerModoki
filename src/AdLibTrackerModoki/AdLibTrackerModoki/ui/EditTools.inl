@@ -1,4 +1,4 @@
-// パターンを編集する道具 (adt2extn.pas の TRANSPOSE / REMAP / REARRANGE / REPLACE / SONG_VARIABLES / LINE_MARKING_SETUP / OCTAVE_CONTROL の移植)
+// パターンを編集する道具 (adt2extn.pas の TRANSPOSE / REMAP / REARRANGE / REPLACE / SONG_VARIABLES / MESSAGE_BOARD / LINE_MARKING_SETUP / OCTAVE_CONTROL の移植)
 //
 // MainScreen.cpp から #include する (MainScreen.cpp の無名名前空間の中で使う)。
 // どれもロックを取らない状態で呼び、曲データを書き換えるときにだけロックを取る。
@@ -459,7 +459,7 @@ void REMAP()
         MenuLib1.mn_environment.v_dest = screen_ptr;
         MenuLib2.mn_environment.v_dest = screen_ptr;
 
-        // Ctrl+O・F1 は画面を戻してから開き直す (ヘルプは未実装)
+        // Ctrl+O・F1 は画面を戻してから開き直す
         bool reopen = false;
         const auto other_keys = [&](uint16_t key) {
             if (key == kCtrlO) {
@@ -468,6 +468,7 @@ void REMAP()
                 reopen = true;
             } else if (key == kF1) {
                 reset_screen();
+                HELP("remap_dialog");
                 reopen = true;
             }
         };
@@ -695,7 +696,7 @@ void REARRANGE()
         move2screen_alt();
         centered_frame_vdest = screen_ptr;
 
-        // F1 は画面を戻してから開き直す (ヘルプは未実装)
+        // F1 は画面を戻してヘルプを出してから開き直す
         bool reopen = false;
         if (!_force_program_quit) {
             do {
@@ -745,7 +746,7 @@ void REARRANGE()
                     case kLEFT: case kRIGHT: case kTAB: case kShTAB: _rearrange_pos = B(1 + rearrange_selection); break;
                     case kESC: qflag = true; break;
                     case kENTER: _rearrange_pos = B(1 + rearrange_selection); qflag = true; break;
-                    case kF1: reset_screen(); reopen = true; break;
+                    case kF1: reset_screen(); HELP("rearrange_dialog"); reopen = true; break;
                     }
                     break;
 
@@ -759,7 +760,7 @@ void REARRANGE()
                     case kUP: case kDOWN: case kTAB: case kShTAB: _rearrange_pos = 1; break;
                     case kENTER: qflag = true; break;
                     case kESC: _rearrange_pos = 1; qflag = true; break;
-                    case kF1: reset_screen(); reopen = true; break;
+                    case kF1: reset_screen(); HELP("rearrange_dialog"); reopen = true; break;
                     }
                     break;
                 }
@@ -1031,7 +1032,7 @@ void REPLACE()
         move2screen_alt();
         centered_frame_vdest = screen_ptr;
 
-        // F1 は画面を戻してから開き直す (ヘルプは未実装)
+        // F1 は画面を戻してヘルプを出してから開き直す
         bool reopen = false;
         if (!_force_program_quit) {
             do {
@@ -1066,7 +1067,7 @@ void REPLACE()
                     case kEND: pos = 11; break;
                     case kESC: qflag = true; break;
                     case kENTER: pos = B(22 + replace_selection); qflag = true; break;
-                    case kF1: reset_screen(); reopen = true; break;
+                    case kF1: reset_screen(); HELP("replace_dialog"); reopen = true; break;
                     case kCtrlK:
                         if (pos <= 3) {
                             replace_data.event_to_find.note = replace_keyoff_str();
@@ -1093,7 +1094,7 @@ void REPLACE()
                     case kEND: pos = 22; break;
                     case kESC: qflag = true; break;
                     case kENTER: pos = B(22 + replace_selection); qflag = true; break;
-                    case kF1: reset_screen(); reopen = true; break;
+                    case kF1: reset_screen(); HELP("replace_dialog"); reopen = true; break;
                     case kCtrlN:
                         switch (pos - 11) {
                         case 1: case 2: case 3: replace_data.new_event.note = "\x07\x07\x07"; pos = 11 + 4; break;
@@ -1120,7 +1121,7 @@ void REPLACE()
                     case kENTER: qflag = true; break;
                     case kSPACE: replace_prompt = !replace_prompt; break;
                     case kESC: pos = 1; qflag = true; break;
-                    case kF1: reset_screen(); reopen = true; break;
+                    case kF1: reset_screen(); HELP("replace_dialog"); reopen = true; break;
                     }
                 } else {   // 23..26 (範囲の選択肢)
                     fkey = getkey();
@@ -1146,7 +1147,7 @@ void REPLACE()
                         break;
                     case kENTER: qflag = true; break;
                     case kESC: pos = 1; qflag = true; break;
-                    case kF1: reset_screen(); reopen = true; break;
+                    case kF1: reset_screen(); HELP("replace_dialog"); reopen = true; break;
                     }
                 }
                 if (reopen) break;
@@ -2229,10 +2230,400 @@ void SONG_VARIABLES()
         is_environment.min_num = 1;
         is_environment.max_num = 4;
 
-        // F1 は開き直す (ヘルプは未実装)。Ctrl+Enter は行の印の設定を開いてから開き直す
-        if (is_environment.keystroke == kF1) continue;
+        // F1 はヘルプを、Ctrl+Enter は行の印の設定を開いてから開き直す
+        if (is_environment.keystroke == kF1) {
+            HELP("song_variables");
+            continue;
+        }
         if (is_environment.keystroke == kCtENTR) {
             LINE_MARKING_SETUP();
+            continue;
+        }
+        break;
+    }
+}
+
+// --- メッセージボード (Ctrl+B) ---
+
+constexpr int MB_HSIZE = 50;   // 50x20 文字
+constexpr int MB_VSIZE = 20;
+
+// songdata.reserved_data の中の String[MB_HSIZE] (tMESSAGE_BOARD_DATA.data の 1 行)。
+// 長さより後ろのバイトも曲データとして保存されるため、Pascal (FPC) の文字列操作と同じようにバイトを動かす
+class MbLine
+{
+public:
+    MbLine(uint8_t* base, int offset) : base_(base), ofs_(offset) {}
+
+    int len() const { return raw(0); }
+    std::string str() const
+    {
+        std::string s;
+        for (int i = 1; i <= len(); ++i) s += static_cast<char>(raw(i));
+        return s;
+    }
+    // s[i] (0 は長さ。範囲の外は reserved_data の続き。reserved_data の外は読み書きしない)
+    uint8_t raw(int i) const { return ofs_ + i < 1024 ? base_[ofs_ + i] : 0; }
+    void set_raw(int i, uint8_t v)
+    {
+        if (ofs_ + i < 1024) base_[ofs_ + i] = v;
+    }
+    char at(int i) const { return static_cast<char>(raw(i)); }
+    void set_len(int n) { set_raw(0, B(n)); }
+
+    // 代入 (MB_HSIZE 文字まで。後ろのバイトはそのまま)
+    void assign(const std::string& s)
+    {
+        const int n = std::min<int>(static_cast<int>(s.size()), MB_HSIZE);
+        for (int i = 0; i < n; ++i) set_raw(i + 1, static_cast<uint8_t>(s[i]));
+        set_len(n);
+    }
+    // fpc_shortstr_delete
+    void del(int index, int count)
+    {
+        if (index <= 0) return;
+        const int length = len();
+        if (index <= length && count > 0) {
+            if (count > length - index) count = length - index + 1;
+            set_len(length - count);
+            const int n = len() - index + 1;
+            for (int i = 0; i < n; ++i) set_raw(index + i, raw(index + count + i));
+        }
+    }
+
+    // fpc_shortstr_insert (high = MB_HSIZE、sizeof = MB_HSIZE + 1)
+    void ins(const std::string& source, int index)
+    {
+        const int length = len();
+        if (index < 1) index = 1;
+        if (index > length) {
+            index = length + 1;
+            if (index > MB_HSIZE) return;
+        }
+        int indexlen = length - index + 1;
+        int srclen = static_cast<int>(source.size());
+        if (srclen + length >= MB_HSIZE + 1) {
+            const int cut = srclen + length - (MB_HSIZE + 1) + 1;
+            if (cut > indexlen) {
+                srclen -= cut - indexlen;
+                indexlen = 0;
+            } else {
+                indexlen -= cut;
+            }
+        }
+        for (int i = indexlen - 1; i >= 0; --i) set_raw(index + srclen + i, raw(index + i));
+        for (int i = 0; i < srclen; ++i) set_raw(index + i, static_cast<uint8_t>(source[i]));
+        set_len(index + srclen + indexlen - 1);
+    }
+
+private:
+    uint8_t* base_;
+    int ofs_;
+};
+
+void MESSAGE_BOARD()
+{
+    static const uint16_t new_keys[21] = { kF1,   kESC,   kENTER,  kUP,     kDOWN, kLEFT,   kRIGHT, kHOME,  kEND,   kPgUP, kPgDOWN,
+                                           kCtHOME, kCtEND, kCtPgUP, kCtPgDN, kTAB,  kCtBkSp, kCtrlY, kDELETE, kBkSPC, kSPACE };
+    static const char MB_SIGNATURE[4] = { 'M', 'B', '_', '1' };   // Message Board v1.0
+
+    // メッセージボードは reserved_data に置く (再生側は読まないため、ロックは取らずに書き換える)
+    uint8_t* reserved = songdata().reserved_data;
+    if (is_empty_data(reserved, sizeof(songdata().reserved_data))) std::memcpy(reserved, MB_SIGNATURE, 4);
+    else if (std::memcmp(reserved, MB_SIGNATURE, 4) != 0) return;
+    is_environment.insert_mode = true;
+
+    const auto data = [reserved](int idx) { return MbLine(reserved, 4 + (idx - 1) * (MB_HSIZE + 1)); };   // [1..MB_VSIZE]
+
+    for (;;) {   // _jmp1
+        if (_force_program_quit) return;
+
+        ScreenMemCopy(screen_ptr, screen_backup);
+        HideCursor();
+
+        uint8_t xstart, ystart;
+        ScreenMemCopy(screen_ptr, temp_screen);
+        centered_frame_vdest = temp_screen;
+        centered_frame(xstart, ystart, MB_HSIZE + 3, MB_VSIZE + 1, " MESSAGE BOARD ", dialog_background + dialog_border,
+                       dialog_background + dialog_title, frame_double);
+
+        move_to_screen_data = temp_screen;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + MB_HSIZE + 3 + 2);
+        move_to_screen_area[4] = B(ystart + MB_VSIZE + 1 + 1);
+
+        const auto show_lines = [&]() {
+            for (int idx = 1; idx <= MB_VSIZE; ++idx)
+                ShowStr(centered_frame_vdest, B(xstart + 2), B(ystart + 1 + idx - 1), ExpStrR(data(idx).str(), MB_HSIZE, ' '),
+                        dl_setting.text_attr);
+        };
+        show_lines();
+
+        move2screen_alt();
+        centered_frame_vdest = screen_ptr;
+
+        const bool old_append_enabled = is_setting.append_enabled;
+        is_setting.append_enabled = false;
+        uint16_t old_keys[21];
+        std::memcpy(old_keys, is_setting.terminate_keys, sizeof(old_keys));
+        std::memcpy(is_setting.terminate_keys, new_keys, sizeof(new_keys));
+
+        // オリジナルの min は大きい方を返す
+        int hpos = B(std::max<int32_t>(get_bank_position("?message_board?hpos", -1), 1));
+        int vpos = B(std::max<int32_t>(get_bank_position("?message_board?vpos", -1), 1));
+        uint16_t fkey = 0;
+
+        if (!_force_program_quit) {
+            do {
+                if (hpos > data(vpos).len() + 1) hpos = data(vpos).len() + 1;
+
+                is_setting.insert_mode = is_environment.insert_mode;
+                is_environment.locate_pos = B(hpos);
+                is_setting.character_set = CharRange(32, 255);
+
+                data(vpos).assign(InputStr(data(vpos).str(), B(xstart + 2), B(ystart + 1 + vpos - 1), MB_HSIZE, MB_HSIZE,
+                                           dl_setting.text_attr, dl_setting.text_attr));
+
+                hpos = is_environment.locate_pos;
+                fkey = is_environment.keystroke;
+                const int ref_vpos = vpos;
+                MbLine line = data(vpos);
+
+                switch (fkey) {
+                case kUP:
+                    if (vpos > 1) --vpos;
+                    break;
+                case kDOWN:
+                    if (vpos < MB_VSIZE) ++vpos;
+                    break;
+
+                case kLEFT:
+                    if (hpos > 1) --hpos;
+                    else if (vpos > 1) {
+                        --vpos;
+                        if (data(vpos).len() != 0)
+                            hpos = std::min(data(vpos).len() + 1, MB_HSIZE);   // オリジナルの max は小さい方を返す
+                        else {
+                            hpos = MB_HSIZE;
+                            data(vpos).assign(ExpStrR("", MB_HSIZE, ' '));
+                        }
+                    }
+                    break;
+
+                case kRIGHT:
+                    if (hpos < MB_HSIZE) ++hpos;
+                    else if (vpos < MB_VSIZE) {
+                        ++vpos;
+                        hpos = 1;
+                    }
+                    break;
+
+                case kCtPgUP: vpos = 1; break;
+                case kCtPgDN: vpos = MB_VSIZE; break;
+
+                case kPgUP: {
+                    const int old_vpos = vpos;
+                    if (vpos > 1) {
+                        do {
+                            --vpos;
+                        } while (!(vpos == 1 || CutStr(data(vpos).str()) != ""));
+                    }
+                    if (vpos == old_vpos) vpos = 1;
+                    break;
+                }
+
+                case kPgDOWN: {
+                    const int old_vpos = vpos;
+                    if (vpos < MB_VSIZE) {
+                        do {
+                            ++vpos;
+                        } while (!(vpos == MB_VSIZE || CutStr(data(vpos).str()) != ""));
+                    }
+                    if (vpos == old_vpos) vpos = MB_VSIZE;
+                    break;
+                }
+
+                case kHOME:
+                    if (hpos > 1) hpos = 1;
+                    else vpos = 1;
+                    break;
+
+                case kCtHOME:
+                    vpos = 1;
+                    hpos = 1;
+                    break;
+
+                case kEND: {
+                    const int end_pos = static_cast<int>(CutStrR(line.str(), 0).size()) + 1;
+                    if (hpos < end_pos) hpos = end_pos;
+                    else if (hpos < MB_HSIZE) hpos = MB_HSIZE;
+                    else vpos = MB_VSIZE;
+                    break;
+                }
+
+                case kCtEND:
+                    vpos = MB_VSIZE;
+                    hpos = data(MB_VSIZE).len() + 1;
+                    break;
+
+                case kENTER:
+                    if (vpos < MB_VSIZE) {
+                        if (CutStr(data(MB_VSIZE).str()) == "") {
+                            std::string temps;
+                            if (hpos < MB_HSIZE) {
+                                temps = Copy(line.str(), hpos, line.len());
+                                if (temps != "") line.del(hpos, line.len());
+                            }
+                            for (int idx = MB_VSIZE; idx >= vpos + 1; --idx) data(idx).assign(data(idx - 1).str());
+                            data(vpos + 1).assign(temps);
+                        }
+                        ++vpos;
+                        hpos = 1;
+                    }
+                    break;
+
+                case kDELETE: {
+                    const std::string s = line.str();
+                    if ((hpos == line.len() && line.at(line.len()) != ' ') ||
+                        !(CutStr(s) == "" || hpos >= line.len() || CutStrR(s, B(hpos)) != CutStrR(s, 0))) {
+                        line.del(hpos, 1);
+                    } else if (vpos < MB_VSIZE) {
+                        const std::string next = CutStrR(data(vpos + 1).str(), 0);
+                        if (static_cast<int>(CutStrR(s, B(hpos)).size() + next.size()) <= MB_HSIZE) {
+                            line.assign(CutStrR(s, B(hpos)) + next);
+                            if (line.len() > MB_HSIZE) line.del(MB_HSIZE + 1, line.len());
+                            for (int idx = vpos + 1; idx <= MB_VSIZE - 1; ++idx) data(idx).assign(data(idx + 1).str());
+                            data(MB_VSIZE).assign("");
+                        }
+                    }
+                    break;
+                }
+
+                case kTAB:
+                    if (vpos > 1) {
+                        int vpos2 = vpos;
+                        std::string temps;
+                        do {
+                            --vpos2;
+                            const std::string s2 = data(vpos2).str();
+                            temps = CutStr(Copy(s2, hpos + 1, static_cast<int>(s2.size()) - hpos));
+                        } while (!(vpos2 == 1 || temps != ""));
+                        MbLine line2 = data(vpos2);
+                        if (hpos <= line2.len()) {
+                            int idx2 = hpos + 1;
+                            while (idx2 < line2.len() && line2.at(idx2) != ' ') ++idx2;
+                            while (idx2 < line2.len() && line2.at(idx2) == ' ') ++idx2;
+                            if (idx2 - hpos > 1) {
+                                line.ins(ExpStrL("", B(idx2 - hpos), ' '), hpos);
+                                hpos += idx2 - hpos;
+                            }
+                        }
+                    }
+                    if (line.len() > MB_HSIZE) line.del(MB_HSIZE + 1, line.len());
+                    break;
+
+                case kSPACE: {
+                    const int idx2 = !ctrl_pressed() ? vpos : MB_VSIZE;
+                    bool flag = false;
+                    int idx = vpos;
+                    for (; idx <= idx2; ++idx) {
+                        if (static_cast<int>(CutStrR(data(idx).str(), 0).size()) == MB_HSIZE) {
+                            flag = true;
+                            break;
+                        }
+                    }
+                    if (idx > idx2) idx = idx2;   // ループを抜けた後の制御変数 (最後の値)
+                    if (!flag && is_environment.insert_mode) {
+                        for (int i = vpos; i <= idx2; ++i) {
+                            MbLine l = data(i);
+                            l.ins(" ", hpos);
+                            if (l.len() > MB_HSIZE) l.del(MB_HSIZE + 1, l.len());
+                        }
+                    } else if (!is_environment.insert_mode) {
+                        data(idx).set_raw(hpos, ' ');
+                    }
+                    if ((!flag || !is_environment.insert_mode) && hpos < MB_HSIZE) ++hpos;
+                    break;
+                }
+
+                case kCtBkSp:
+                    if (!shift_pressed()) {
+                        if (hpos == MB_HSIZE && line.len() > 0) line.set_len(line.len() - 1);
+                        while (InSet(is_setting.word_characters, line.at(hpos - 1)) && hpos > 1) {
+                            --hpos;
+                            line.del(hpos, 1);
+                        }
+                        while (!InSet(is_setting.word_characters, line.at(hpos - 1)) && hpos > 1) {
+                            --hpos;
+                            line.del(hpos, 1);
+                        }
+                    } else if (hpos < MB_HSIZE) {
+                        --hpos;
+                        if (hpos != 0) {
+                            for (int idx = vpos; idx <= MB_VSIZE; ++idx) data(idx).del(hpos, 1);
+                        } else hpos = 1;
+                    } else {
+                        for (int idx = vpos; idx <= MB_VSIZE; ++idx) {
+                            MbLine l = data(idx);
+                            if (l.len() > 0) l.set_len(l.len() - 1);
+                        }
+                    }
+                    break;
+
+                case kBkSPC:
+                    if (hpos > 1) {
+                        if (hpos < MB_HSIZE || line.at(hpos) == ' ') {
+                            --hpos;
+                            line.del(hpos, 1);
+                        } else if (line.len() > 0) {
+                            line.set_len(line.len() - 1);
+                        }
+                    } else if (vpos > 1) {
+                        const std::string prev = CutStrR(data(vpos - 1).str(), 0);
+                        const std::string cur = CutStrR(line.str(), 0);
+                        if (static_cast<int>(prev.size() + cur.size()) <= MB_HSIZE) {
+                            --vpos;
+                            MbLine l = data(vpos);
+                            hpos = l.len() + 1;
+                            l.assign(prev + cur);
+                            if (l.len() > MB_HSIZE) l.del(MB_HSIZE + 1, l.len());
+                            for (int idx = vpos + 1; idx <= MB_VSIZE - 1; ++idx) data(idx).assign(data(idx + 1).str());
+                            data(MB_VSIZE).assign("");
+                        }
+                    }
+                    break;
+
+                case kCtrlY:
+                    if (!shift_pressed()) {
+                        for (int idx = vpos; idx <= MB_VSIZE - 1; ++idx) data(idx).assign(data(idx + 1).str());
+                        data(MB_VSIZE).assign("");
+                    }
+                    break;
+                }
+
+                if (data(vpos).len() < hpos) data(vpos).assign(ExpStrR(data(vpos).str(), B(hpos), ' '));
+                if (ref_vpos != vpos) data(ref_vpos).assign(CutStrR(data(ref_vpos).str(), 0));
+
+                show_lines();
+            } while (!(fkey == kESC || fkey == kF1 || _force_program_quit));
+        }
+
+        is_setting.append_enabled = old_append_enabled;
+        std::memcpy(is_setting.terminate_keys, old_keys, sizeof(old_keys));
+        add_bank_position("?message_board?hpos", -1, hpos);
+        add_bank_position("?message_board?vpos", -1, vpos);
+
+        HideCursor();
+        move_to_screen_data = screen_backup;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + MB_HSIZE + 3 + 2);
+        move_to_screen_area[4] = B(ystart + MB_VSIZE + 1 + 1);
+        move2screen();
+
+        if (fkey == kF1) {
+            HELP("message_board");
             continue;
         }
         break;

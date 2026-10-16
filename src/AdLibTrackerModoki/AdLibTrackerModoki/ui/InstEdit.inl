@@ -2542,8 +2542,8 @@ void INSTRUMENT_CONTROL_edit()
         case kCtrlO:
             OCTAVE_CONTROL();
             break;
-        default:
-            // F1 (ヘルプ) は未実装
+        case kF1:
+            HELP("instrument_editor");
             break;
         }
     }
@@ -2724,7 +2724,7 @@ uint8_t INSTRUMENT_CONTROL()
             continue;
         }
         if (key == kF1) {
-            // ヘルプ (HELP) は未実装
+            HELP("instrument_control");
             continue;
         }
         if (key == kF2 || key == kCtrlS) {

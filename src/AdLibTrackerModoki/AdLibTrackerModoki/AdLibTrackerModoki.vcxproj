@@ -171,12 +171,14 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClInclude Include="ui\StringIO.h" />
     <ClInclude Include="ui\DialogIO.h" />
     <ClInclude Include="ui\MenuLib.h" />
+    <ClInclude Include="ui\HelpData.h" />
     <None Include="ui\InstEdit.inl" />
     <None Include="ui\MacroEdit.inl" />
     <None Include="ui\BankLoad.inl" />
     <None Include="ui\A2wLoad.inl" />
     <None Include="ui\BnkLoad.inl" />
     <None Include="ui\EditTools.inl" />
+    <None Include="ui\Help.inl" />
     <ClInclude Include="core\song\SongData.h" />
     <ClInclude Include="core\song\Song.h" />
     <ClInclude Include="core\song\EffectDefs.h" />
@@ -219,6 +221,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClCompile Include="ui\StringIO.cpp" />
     <ClCompile Include="ui\DialogIO.cpp" />
     <ClCompile Include="ui\MenuLib.cpp" />
+    <ClCompile Include="ui\HelpData.cpp" />
     <ClCompile Include="core\song\Song.cpp" />
     <ClCompile Include="core\song\Depack.cpp" />
     <ClCompile Include="core\song\A2mLoader.cpp" />

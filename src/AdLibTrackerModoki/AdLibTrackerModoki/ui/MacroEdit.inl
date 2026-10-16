@@ -3025,7 +3025,8 @@ void MACRO_EDITOR(uint8_t instr_, bool arp_vib_mode_)
         }
 
         if (k == kF1) {
-            // ヘルプ (F1) は 6f-4 で実装する。開き直す
+            PlayerUnlock unlock;
+            HELP(!arp_vib_mode ? "macro_editor" : "macro_editor_(av)");
             continue;
         }
         break;

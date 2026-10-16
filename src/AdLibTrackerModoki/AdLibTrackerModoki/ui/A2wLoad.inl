@@ -1153,7 +1153,7 @@ uint8_t a2w_file_loader(bool loadFromFile, bool loadMacros, bool bankSelector, b
             restore_screen_area();
 
             if (key == kF1) {
-                // ヘルプ (HELP) は 6f で実装する。開き直す
+                HELP("macro_browser_av");
                 if (!_force_program_quit) continue;
             }
 
@@ -1430,7 +1430,7 @@ uint8_t a2w_file_loader(bool loadFromFile, bool loadMacros, bool bankSelector, b
             }
 
             if (key == kF1) {
-                // ヘルプ (HELP) は 6f で実装する。開き直す
+                HELP("macro_browser");
                 if (!_force_program_quit) continue;
             }
             step = Step::Jmp2e;

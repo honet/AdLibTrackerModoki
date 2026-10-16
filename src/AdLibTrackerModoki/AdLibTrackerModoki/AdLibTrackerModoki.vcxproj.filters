@@ -105,6 +105,9 @@
     <ClInclude Include="ui\MenuLib.h">
       <Filter>ui</Filter>
     </ClInclude>
+    <ClInclude Include="ui\HelpData.h">
+      <Filter>ui</Filter>
+    </ClInclude>
     <ClInclude Include="core\song\SongData.h">
       <Filter>core\song</Filter>
     </ClInclude>
@@ -216,6 +219,9 @@
       <Filter>ui</Filter>
     </ClCompile>
     <ClCompile Include="ui\MenuLib.cpp">
+      <Filter>ui</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\HelpData.cpp">
       <Filter>ui</Filter>
     </ClCompile>
     <ClCompile Include="core\song\Song.cpp">

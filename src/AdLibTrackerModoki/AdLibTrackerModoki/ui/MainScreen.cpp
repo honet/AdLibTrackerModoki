@@ -16,6 +16,7 @@
 #include "DialogIO.h"
 #include "MainScreenData.h"
 #include "MenuLib.h"
+#include "HelpData.h"
 #include "StringIO.h"
 #include "TxtScrIO.h"
 #include "../Resource.h"
@@ -173,6 +174,9 @@ int32_t _NRECM_blink_ticks = 0;
 bool _IRQFREQ_blink_flag = false;
 int32_t _IRQFREQ_blink_ticks = 0;
 bool _IRQFREQ_update_event = false;
+
+// ヘルプ (Help.inl)
+void HELP(const std::string& topic);
 
 uint8_t _traceprc_last_order = 0;
 uint8_t _traceprc_last_pattern = 0;
@@ -3017,7 +3021,6 @@ void debug_info_refresh(uint8_t xstart, uint8_t ystart, bool _ctrl_alt_flag, boo
 }
 
 // Ctrl+D、または Ctrl+Alt を押している間 (その場合は Ctrl+Alt を離すと閉じる)
-// F1 (ヘルプ) はヘルプの実装とともに対応する。
 void DEBUG_INFO()
 {
     const bool _ctrl_alt_flag = ctrl_pressed() && alt_pressed();
@@ -3265,11 +3268,12 @@ void DEBUG_INFO()
             }
 
             draw_screen();
-        } while (!((!_ctrl_alt_flag && (fkey == kESC || fkey == kAlt0)) || (_ctrl_alt_flag && !(ctrl_pressed() && alt_pressed())) ||
+        } while (!((!_ctrl_alt_flag && (fkey == kESC || fkey == kF1 || fkey == kAlt0)) ||
+                   (_ctrl_alt_flag && !(ctrl_pressed() && alt_pressed())) ||
                    _force_program_quit));
 
         if (!_ctrl_alt_flag) keyboard_reset_buffer();
-        if (fkey != kAlt0 && _reset_state) {
+        if (!(fkey == kF1 || fkey == kAlt0) && _reset_state) {
             PlayerLock lock;
             A2Player& p = P();
             p.debugging = old_debugging;
@@ -3284,6 +3288,22 @@ void DEBUG_INFO()
         move_to_screen_area[3] = B(xstart + 83 + 2);
         move_to_screen_area[4] = B(ystart + nm + 6 + 1);
         move2screen();
+
+        if (fkey == kF1) {
+            realtime_gfx_poll_proc();
+            {
+                PlayerLock lock;
+                P().no_step_debugging = true;
+            }
+            HELP("debug_info");
+            draw_screen();
+            keyboard_reset_buffer();
+            {
+                PlayerLock lock;
+                P().no_step_debugging = false;
+            }
+            if (!_force_program_quit) continue;
+        }
 
         if (fkey == kAlt0) {
             {
@@ -3444,6 +3464,7 @@ void INSTRUMENT_CONTROL_edit();
 void MACRO_EDITOR(uint8_t instr, bool arp_vib_mode);
 void MACRO_BROWSER(bool instrBrowser, bool updateCurInstr);
 void TRANSPOSE();
+void MESSAGE_BOARD();
 void REMAP();
 void REARRANGE();
 void REPLACE();
@@ -3547,6 +3568,16 @@ uint16_t PATTERN_trace()
             } else if (fkey2 == kCtrlR) {
                 pause_debugging();
                 REMAP();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlB) {
+                pause_debugging();
+                MESSAGE_BOARD();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kF1) {
+                // WAV の録音は実装していないため wav_recorder は出さない
+                pause_debugging();
+                if (track_notes) HELP("note_recorder");
+                else HELP("general");
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtrlF) {
                 pause_debugging();
@@ -5282,7 +5313,7 @@ void PATTERN_LIST(uint8_t page)
 
         const uint16_t key = mn_environment.keystroke;
         if (key == kF1) {
-            // ヘルプ (HELP) は未実装。一覧に戻る
+            HELP("pattern_list");
             continue;
         }
         if (key == kF2 || key == kCtrlS) {
@@ -5345,8 +5376,10 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
             list_to_pattern_names();
         }
 
-        // ヘルプ (HELP) は未実装。一覧に戻る
-        if (mn_environment.keystroke == kF1) continue;
+        if (mn_environment.keystroke == kF1) {
+            HELP("pattern_list");
+            continue;
+        }
         break;
     }
 
@@ -5359,6 +5392,7 @@ uint8_t PATTERN_LIST_alt(uint8_t page)
 #include "A2wLoad.inl"
 #include "BnkLoad.inl"
 #include "EditTools.inl"
+#include "Help.inl"
 
 // ブロック内の音量のエフェクトの値を shift だけ変える。範囲を超えるものがあれば何もせず FALSE を返す。
 // update_values が FALSE なら確かめるだけ。
@@ -6119,7 +6153,8 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
 
             case kCtrlB:
                 if (!marking) {
-                    // メッセージボード (MESSAGE_BOARD) は未実装
+                    PlayerUnlock unlock;
+                    MESSAGE_BOARD();
                 } else {
                     _save_pattern_to_undo();
                     unmark_block(page, hpos);
@@ -6188,9 +6223,42 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 break;
             }
 
-            case kF1:
-                // 各種画面 (未実装)
+            case kF1: {
+                // カーソルの位置などでヘルプの話題を選ぶ (WAV の録音は実装していないため wav_recorder は出さない)
+                const uint8_t cpos = count_pos(hpos);
+                std::string temps;
+                if (marking) temps = "block_operations";
+                else if (command_typing == 0 && (cpos == 2 || cpos == 3)) temps = "effects_page1";
+                else if (command_typing != 0 && cpos >= 4 && cpos <= 9) temps = "effects_page1";
+                else if (P().debugging && P().play_status == PlayStatus::Stopped) temps = "midiboard";
+                else temps = "pattern_editor";
+
+                if (track_notes) {
+                    PlayerUnlock unlock;
+                    HELP("note_recorder");
+                } else {
+                    get_chunk(pattern, page, count_channel(hpos), chunk);
+                    uint16_t temp1;
+                    if (!marking && ((command_typing == 0 && cpos == 2) || (command_typing != 0 && cpos >= 4 && cpos <= 6)))
+                        temp1 = static_cast<uint16_t>(chunk.effect_def + ((chunk.effect / 16) << 8));
+                    else if (!marking && ((command_typing == 0 && cpos == 3) || (command_typing != 0 && cpos >= 7 && cpos <= 9)))
+                        temp1 = static_cast<uint16_t>(chunk.effect_def2 + ((chunk.effect2 / 16) << 8));
+                    else temp1 = WORD_NULL;
+
+                    if (temp1 != WORD_NULL) {
+                        const uint8_t def = LO(temp1);
+                        if (def <= ef_SetWaveform) temps = "effects_page1";
+                        else if (def >= ef_VolSlideFine && def <= ef_FSlDownFineVSlF) temps = "effects_page2";
+                        else if (def == ef_Extended) temps = HI(temp1) <= ef_ex_PatternLoopRec ? "effects_page3" : "effects_page4";
+                        else if (def == ef_Extended3) temps = "effects_page5";
+                        else if (def == ef_Extended2) temps = "effects_page6";
+                        else temps = "effects_page7";
+                    }
+                    PlayerUnlock unlock;
+                    HELP(temps);
+                }
                 break;
+            }
 
             case kCtrlF: {
                 cancel_note_recorder();
@@ -7210,10 +7278,18 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
-            case kCtrlB:
-            case kF1:
-                // 各種画面 (未実装)
+            case kCtrlB: {
+                PlayerUnlock unlock;
+                MESSAGE_BOARD();
                 break;
+            }
+
+            case kF1: {
+                // WAV の録音は実装していないため wav_recorder は出さない
+                PlayerUnlock unlock;
+                HELP("pattern_order");
+                break;
+            }
 
             case kCtrlD: {
                 PlayerUnlock unlock;
