@@ -118,8 +118,6 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>c86ctl.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(ProjectDir)third_party\c86ctl\bin\x64-dbg\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64-dbg\c86ctl.dll" "$(OutDir)"
@@ -144,8 +142,6 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64-dbg\c86ctl.pdb" "$(OutDir)"
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>c86ctl.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(ProjectDir)third_party\c86ctl\bin\x64\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.dll" "$(OutDir)"

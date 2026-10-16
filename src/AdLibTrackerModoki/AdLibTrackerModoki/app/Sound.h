@@ -45,7 +45,8 @@ void sound_play();
 void sound_stop();
 
 // エミュレータを切り替える (読み込み済みの曲は引き継ぎ、再生は停止する)
-bool sound_set_emulator(EmulatorType type);
+// 実機に切り替えられなかったときは false を返して元のエミュレータに戻す (理由は error に入る)
+bool sound_set_emulator(EmulatorType type, std::wstring& error);
 EmulatorType sound_emulator();
 
 PlayerStatus sound_status();

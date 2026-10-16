@@ -26,6 +26,7 @@ namespace
     std::unique_ptr<TimerDriver> g_timerDriver;
     IPlayerDriver* g_driver = nullptr;
     std::unique_ptr<IAudioOutput> g_audioOutput;
+    std::wstring g_error;    // 直近の start_sound() が失敗した理由
 
     // エミュレータ: サンプル数で駆動し、PCM を DirectSound で鳴らす
     bool start_emulator()
@@ -64,13 +65,17 @@ namespace
         g_driver = g_timerDriver.get();
 
         // 接続できなくてもプレイヤーは残す (曲の編集はできるようにする)
-        if (!g_hardware->open()) return false;
+        if (!g_hardware->open()) {
+            g_error = g_hardware->lastError();
+            return false;
+        }
         g_hardware->reset();
         return g_timerDriver->start();
     }
 
     bool start_sound()
     {
+        g_error.clear();
         return g_emulatorType == EmulatorType::Hardware ? start_hardware() : start_emulator();
     }
 }
@@ -152,7 +157,7 @@ void sound_stop()
     g_player->stopPlaying();
 }
 
-bool sound_set_emulator(EmulatorType type)
+bool sound_set_emulator(EmulatorType type, std::wstring& error)
 {
     if (type == g_emulatorType) return true;
 
@@ -162,9 +167,18 @@ bool sound_set_emulator(EmulatorType type)
         song = g_player->song();
     }
 
+    const EmulatorType previous = g_emulatorType;
     sound_done();
     g_emulatorType = type;
-    const bool ok = start_sound();
+    bool ok = start_sound();
+    error = g_error;
+
+    // 実機が使えなければ元のエミュレータに戻し、演奏を続けられるようにする
+    if (!ok && type == EmulatorType::Hardware && previous != EmulatorType::Hardware) {
+        sound_done();
+        g_emulatorType = previous;
+        start_sound();
+    }
 
     if (g_player && song) {
         std::lock_guard lock(g_driver->mutex());

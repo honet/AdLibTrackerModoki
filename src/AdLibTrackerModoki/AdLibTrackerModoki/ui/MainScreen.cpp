@@ -2302,8 +2302,14 @@ void change_emulator(EmulatorType type)
 {
     fade_out_playback(false);
     // プレイヤーが作り直されるため、曲は引き継がれるが演奏は停止する
-    sound_set_emulator(type);
+    std::wstring error;
+    const bool ok = sound_set_emulator(type, error);
     refresh_windows();
+    if (!ok && type == EmulatorType::Hardware) {
+        std::wstring msg = L"OPL3 hardware is not available. Playback continues with the emulator.";
+        if (!error.empty()) msg += L"\n\n" + error;
+        MessageBoxW(g_hwnd, msg.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
+    }
 }
 
 // メニューのコマンドとドロップされたファイルを処理する。
