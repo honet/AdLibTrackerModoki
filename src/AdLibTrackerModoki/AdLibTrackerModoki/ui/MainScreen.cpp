@@ -3447,6 +3447,7 @@ void TRANSPOSE();
 void REMAP();
 void REARRANGE();
 void REPLACE();
+void SONG_VARIABLES();
 void OCTAVE_CONTROL();
 void LINE_MARKING_SETUP();
 
@@ -3546,6 +3547,10 @@ uint16_t PATTERN_trace()
             } else if (fkey2 == kCtrlR) {
                 pause_debugging();
                 REMAP();
+                keyboard_reset_buffer();
+            } else if (fkey2 == kCtrlF) {
+                pause_debugging();
+                SONG_VARIABLES();
                 keyboard_reset_buffer();
             } else if (fkey2 == kCtrlH) {
                 pause_debugging();
@@ -6187,10 +6192,12 @@ uint16_t PATTERN_edit(uint8_t& pattern, uint8_t& page, uint8_t& hpos)
                 // 各種画面 (未実装)
                 break;
 
-            case kCtrlF:
+            case kCtrlF: {
                 cancel_note_recorder();
-                // 曲の設定 (SONG_VARIABLES) は未実装
+                PlayerUnlock unlock;
+                SONG_VARIABLES();
                 break;
+            }
 
             case kShF6:
                 if (enter_debug_mode(pattern, page)) return kF10;
@@ -7197,8 +7204,13 @@ uint16_t PATTERN_ORDER_edit(uint8_t& page, uint8_t& hpos, uint8_t& vpos)
                 break;
             }
 
+            case kCtrlF: {
+                PlayerUnlock unlock;
+                SONG_VARIABLES();
+                break;
+            }
+
             case kCtrlB:
-            case kCtrlF:
             case kF1:
                 // 各種画面 (未実装)
                 break;

@@ -1,4 +1,4 @@
-// パターンを編集する道具 (adt2extn.pas の TRANSPOSE / REMAP / REARRANGE / REPLACE / LINE_MARKING_SETUP / OCTAVE_CONTROL の移植)
+// パターンを編集する道具 (adt2extn.pas の TRANSPOSE / REMAP / REARRANGE / REPLACE / SONG_VARIABLES / LINE_MARKING_SETUP / OCTAVE_CONTROL の移植)
 //
 // MainScreen.cpp から #include する (MainScreen.cpp の無名名前空間の中で使う)。
 // どれもロックを取らない状態で呼び、曲データを書き換えるときにだけロックを取る。
@@ -1313,4 +1313,928 @@ void REPLACE()
 
     PATTERN_ORDER_page_refresh(pattord_page);
     PATTERN_page_refresh(pattern_page);
+}
+
+// --- 曲の設定 (Ctrl+F) ---
+
+constexpr uint8_t dialog_misc_indic = 0x08;
+constexpr uint8_t dialog_hid = 0x06;
+
+uint8_t _bpm_xstart = 0;
+uint8_t _bpm_ystart = 0;
+uint8_t _song_variables_pos = 1;
+std::string bpm_inc_str, bpm_dec_str;
+
+// realtime_gfx_poll_proc から呼ぶ (ロックを取った状態)
+void _show_bpm_callback_SV()
+{
+    const FixedSongData& sd = songdata();
+    const uint8_t mark_line = P().mark_line;
+    double bpm = calc_bpm_speed(sd.tempo, sd.speed, mark_line);
+    if (_song_variables_pos == 3) {
+        const uint8_t is_num = B(Str2num(is_environment.cur_str, 10));
+        if (is_num >= 1) bpm = calc_bpm_speed(is_num, sd.speed, mark_line);
+    } else if (_song_variables_pos == 4) {
+        const uint8_t is_num = B(Str2num(is_environment.cur_str, 16));
+        if (is_num >= 1) bpm = calc_bpm_speed(sd.tempo, is_num, mark_line);
+    }
+    ShowStr(screen_ptr, _bpm_xstart, _bpm_ystart, ExpStrL(Bpm2str(bpm) + " BPM", 9, ' '), dialog_background + dialog_misc_indic);
+}
+
+// テンポ・スピードの入力欄の ext_proc。+/- で変えたときの BPM を出す
+void _show_current_bpm_with_hints()
+{
+    PlayerLock lock;
+    const FixedSongData& sd = songdata();
+    const uint8_t mark_line = P().mark_line;
+    const auto hint = [](const char* sign, double bpm) {
+        return std::string("`(`~") + sign + "~`)` " + ExpStrL(Bpm2str(bpm) + " `BPM`", 11, ' ');
+    };
+    if (_song_variables_pos == 3 || _song_variables_pos == 4) {
+        const bool is_tempo = _song_variables_pos == 3;
+        const uint8_t is_num = B(Str2num(is_environment.cur_str, is_tempo ? 10 : 16));
+        const auto bpm_of = [&](int value) {
+            return is_tempo ? calc_bpm_speed(B(value), sd.speed, mark_line) : calc_bpm_speed(sd.tempo, B(value), mark_line);
+        };
+        bpm_inc_str = is_num >= 1 && is_num <= 254 ? hint("+", bpm_of(is_num + 1)) : ExpStrL("", 13, ' ');
+        bpm_dec_str = is_num >= 2 ? hint("-", bpm_of(is_num - 1)) : ExpStrL("", 13, ' ');
+    }
+
+    const auto show = [](uint8_t dy, const std::string& str) {
+        ShowC3Str(screen_ptr, B(_bpm_xstart - 4), B(_bpm_ystart + dy), str, dialog_background + dialog_context_dis,
+                  dialog_background + dialog_title, dialog_background + dialog_contxt_dis2);
+    };
+    show(1, bpm_inc_str);
+    if (CutStr(bpm_inc_str) != "") show(2, bpm_dec_str);
+    else {
+        show(1, bpm_dec_str);
+        show(2, bpm_inc_str);
+    }
+}
+
+// 空でない最後の楽器 (adt2unit.pas の count_instruments)
+uint8_t count_instruments()
+{
+    const FixedSongData& sd = songdata();
+    uint8_t instruments = 255;
+    while (instruments > 0 && is_empty_data(&at1(sd.instr_data, instruments), INSTRUMENT_SIZE)) --instruments;
+    return instruments;
+}
+
+std::string truncate_string(std::string str)
+{
+    while (!str.empty() && (str.back() == '\0' || str.back() == ' ' || str.back() == '\xFF')) str.pop_back();
+    return str;
+}
+
+void SONG_VARIABLES()
+{
+    static const uint16_t new_keys[29] = { kF1,   kESC,  kENTER, kTAB,  kShTAB, kUP,   kDOWN, kCtENTR, kAltN, kAltE,
+                                           kAltT, kAltS, kAltR,  kAltD, kAltO,  kAltI, kAltA, kAltL,   kAltB, kAltH,
+                                           kAltF, kAltX, kAltU,  kAltK, kAltG,  kAltM, kAltC, kAltV,   kAltP };
+    constexpr uint8_t RANGE_PAN_LO = 18, RANGE_PAN_HI = 77;
+    constexpr uint8_t RANGE_4OP_LO = 78, RANGE_4OP_HI = 83;
+    constexpr uint8_t RANGE_LCK_LO = 84, RANGE_LCK_HI = 163;
+    const auto in_pan = [](uint8_t p) { return p >= RANGE_PAN_LO && p <= RANGE_PAN_HI; };
+    const auto in_4op = [](uint8_t p) { return p >= RANGE_4OP_LO && p <= RANGE_4OP_HI; };
+    const auto in_lck = [](uint8_t p) { return p >= RANGE_LCK_LO && p <= RANGE_LCK_HI; };
+
+    static const char _on_off[2] = { '\xFA', '\xFB' };
+    static const char* const _4op_str[6] = { "1 \xF1" "2   ", "3 \xF1" "4   ", "5 \xF1" "6   ",
+                                             "10\xF1" "11  ", "12\xF1" "13  ", "14\xF1" "15  " };
+    static const char* const voice_pan_str[4] = { "~\xFA~\xFA\x0B~\x0B~\x0B\xFA~\xFA~", "~\x0B~\x0B\x0B~\xFA~\xFA\xFA~\xFA~",
+                                                  "~\xFA~\xFA\xFA~\xFA~\x0B\x0B~\x0B~", "\xFA\xFA\xFA\xFA\xFA\xFA\xFA" };
+    static const uint8_t _4op_main_chan[6] = { 2, 4, 6, 11, 13, 15 };
+    static const uint8_t _pan_pos[3] = { 1, 0, 2 };
+    static const uint8_t _left_pos_pan[60] = {
+        2,   18, 19, 87,  21, 22, 91,  24, 25, 3,   27, 28, 5,   30, 31, 17,  33, 34, 107, 36,
+        37,  78, 39, 40,  79, 42, 43,  80, 45, 46,  81, 48, 49,  82, 51, 52,  83, 54, 55,  12,
+        57,  58, 139, 60, 61, 13, 63,  64, 14, 66,  67, 151, 69, 70, 15, 72,  73, 16, 75,  76 };
+    static const uint8_t _left_pos_lck[80] = {
+        20, 84,  85,  86,  23, 88,  89,  90,  26, 92,  93,  94,  29, 96,  97,  98,  32, 100, 101, 102,
+        35, 104, 105, 106, 38, 108, 109, 110, 41, 112, 113, 114, 44, 116, 117, 118, 47, 120, 121, 122,
+        50, 124, 125, 126, 53, 128, 129, 130, 56, 132, 133, 134, 59, 136, 137, 138, 62, 140, 141, 142,
+        65, 144, 145, 146, 68, 148, 149, 150, 71, 152, 153, 154, 74, 156, 157, 158, 77, 160, 161, 162 };
+    static const uint8_t _right_pos_pan[60] = {
+        19, 20, 84,  22, 23, 88,  25, 26, 92,  28, 29, 96,  31, 32, 100, 34, 35, 104, 37, 38,
+        108, 40, 41, 112, 43, 44, 116, 46, 47, 120, 49, 50, 124, 52, 53, 128, 55, 56, 132, 58,
+        59, 136, 61, 62, 140, 64, 65, 144, 67, 68, 148, 70, 71, 152, 73, 74, 156, 76, 77, 160 };
+    // 右端の列の行き先はトラック数で変わる ((temp - 1) * 4 + 4 の要素を書き換える)
+    static uint8_t _right_pos_lck[80] = {
+        85,  86,  87,  0, 89,  90,  91,  0, 93,  94,  95,  0, 97,  98,  99,  0, 101, 102, 103, 0,
+        105, 106, 107, 0, 109, 110, 111, 0, 113, 114, 115, 0, 117, 118, 119, 0, 121, 122, 123, 0,
+        125, 126, 127, 0, 129, 130, 131, 0, 133, 134, 135, 0, 137, 138, 139, 0, 141, 142, 143, 0,
+        145, 146, 147, 0, 149, 150, 151, 0, 153, 154, 155, 0, 157, 158, 159, 0, 161, 162, 163, 1 };
+    static const uint8_t _right_pos_lck_def[19][2] = {
+        { 21, 3 }, { 24, 3 }, { 3, 3 },   { 4, 4 },   { 17, 17 }, { 36, 6 },  { 6, 6 },   { 7, 7 },   { 8, 8 }, { 81, 81 },
+        { 82, 82 }, { 9, 9 }, { 10, 10 }, { 60, 13 }, { 13, 13 }, { 14, 14 }, { 69, 15 }, { 15, 15 }, { 16, 16 } };
+    static uint8_t _left_pos_4op[6] = { 6, 7, 8, 0, 0, 11 };
+    static uint8_t _right_pos_4op[6] = { 0, 0, 0, 0, 0, 0 };
+    static uint8_t _up_pos_4op[6] = { 0, 78, 79, 80, 81, 82 };
+    static const uint8_t _down_pos_4op[6] = { 79, 80, 81, 82, 83, 10 };
+    static const uint8_t _right_pos_4op_def[6][2] = { { 39, 7 }, { 42, 8 }, { 45, 81 }, { 48, 82 }, { 51, 9 }, { 54, 10 } };
+    static uint8_t _old_pos_pan = RANGE_PAN_LO + 1;
+    static uint8_t _old_pos_4op = RANGE_4OP_LO;
+    static uint8_t _old_pos_lck = RANGE_LCK_LO;
+
+    uint8_t pos, pos_4op;
+    uint8_t order_entries, patterns, instruments;
+    uint8_t xstart = 0, ystart = 0;
+    {
+        PlayerLock lock;
+        A2Player& p = P();
+        FixedSongData& sd = songdata();
+        songdata_crc = Update32(&sd, sizeof(FixedSongData), 0);
+        count_order(order_entries);
+        patterns = count_patterns();
+        instruments = count_instruments();
+        // オリジナルの min は大きい方を返す
+        pos = B(std::max<int32_t>(get_bank_position("?song_variables_window?pos", -1), 1));
+        pos_4op = B(std::max<int32_t>(get_bank_position("?song_variables_window?pos_4op", -1), 0));
+        if (calc_max_speedup(sd.tempo) < sd.macro_speedup) {
+            sd.macro_speedup = calc_max_speedup(sd.tempo);
+            if (p.play_status == PlayStatus::Stopped) p.macro_speedup = sd.macro_speedup;
+        }
+    }
+
+    const auto _check_key_shortcuts = [&]() {
+        if (in_pan(pos)) {
+            _old_pos_pan = B(RANGE_PAN_LO + 1 + (pos - RANGE_PAN_LO) / 3 * 3);
+            _old_pos_lck = B(RANGE_LCK_LO + (pos - RANGE_PAN_LO) / 3 * 4);
+        } else if (in_4op(pos)) {
+            _old_pos_4op = pos;
+        } else if (in_lck(pos)) {
+            _old_pos_pan = B(RANGE_PAN_LO + 1 + (pos - RANGE_LCK_LO) / 4 * 3);
+            _old_pos_lck = B(RANGE_LCK_LO + pos % 4 + (pos - RANGE_LCK_LO) / 4 * 4);
+        }
+        const A2Player& p = P();
+        const auto lck_pos = [&](uint8_t col) {
+            if (in_lck(_old_pos_lck)) return B(RANGE_LCK_LO + col + (_old_pos_lck - RANGE_LCK_LO) / 4 * 4);
+            return B(RANGE_LCK_LO + col);
+        };
+        switch (is_environment.keystroke) {
+        case kAltN: pos = 1; break;
+        case kAltE: pos = 2; break;
+        case kAltT: pos = 3; break;
+        case kAltS: pos = 4; break;
+        case kAltR: pos = 5; break;
+        case kAltD: pos = 17; break;
+        case kAltO: pos = 6; break;
+        case kAltI: pos = 7; break;
+        case kAltA: pos = 8; break;
+        case kAltL: pos = p.tremolo_depth == 0 ? 9 : 10; break;
+        case kAltB: pos = p.vibrato_depth == 0 ? 11 : 12; break;
+        case kAltH: pos = 13; break;
+        case kAltF: pos = 14; break;
+        case kAltX: pos = 15; break;
+        case kAltU: pos = 16; break;
+        case kAltK:
+            pos = in_4op(_old_pos_4op) ? _old_pos_4op : RANGE_4OP_LO;
+            pos_4op = 0;
+            break;
+        case kAltG: pos = in_pan(_old_pos_pan) ? _old_pos_pan : B(RANGE_PAN_LO + 1); break;
+        case kAltM: pos = lck_pos(0); break;
+        case kAltC: pos = lck_pos(1); break;
+        case kAltV: pos = lck_pos(2); break;
+        case kAltP: pos = lck_pos(3); break;
+        }
+    };
+
+    const auto set_cursor = []() {
+        if (use_large_cursor) WideCursor();
+        else ThinCursor();
+    };
+
+    const auto refresh_pages = []() {
+        PlayerLock lock;
+        force_scrollbars = true;
+        PATTERN_ORDER_page_refresh(pattord_page);
+        PATTERN_page_refresh(pattern_page);
+        force_scrollbars = false;
+    };
+
+    for (;;) {   // _jmp1
+        if (_force_program_quit) return;
+
+        ScreenMemCopy(screen_ptr, screen_backup);
+        HideCursor();
+
+        ScreenMemCopy(screen_ptr, temp_screen);
+        centered_frame_vdest = temp_screen;
+        centered_frame(xstart, ystart, 79, 26, " SONG VARiABLES ", dialog_background + dialog_border,
+                       dialog_background + dialog_title, frame_double);
+        centered_frame_vdest = screen_ptr;
+
+        move_to_screen_data = temp_screen;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + 79 + 2);
+        move_to_screen_area[4] = B(ystart + 26 + 1);
+        move2screen_alt();
+
+        move_to_screen_area[1] = B(xstart + 1);
+        move_to_screen_area[2] = B(ystart + 1);
+        move_to_screen_area[3] = B(xstart + 78);
+        move_to_screen_area[4] = B(ystart + 25);
+
+        _bpm_xstart = B(xstart + 39);
+        _bpm_ystart = B(ystart + 7);
+
+        void (*old_bpm_proc)();
+        {
+            PlayerLock lock;
+            old_bpm_proc = _show_bpm_realtime_proc;
+            _show_bpm_realtime_proc = _show_bpm_callback_SV;
+        }
+
+        ShowCStr(temp_screen, B(xstart + 2), B(ystart + 6), "iNSTRUMENTS: ~" + Num2str(instruments, 10) + "/255~  ",
+                 dialog_background + dialog_text, dialog_background + dialog_context_dis);
+        ShowCStr(temp_screen, B(xstart + 25), B(ystart + 6), "PATTERNS: ~" + Num2str(patterns, 10) + "/" + Num2str(128, 10) + "~  ",
+                 dialog_background + dialog_text, dialog_background + dialog_context_dis);
+        ShowCStr(temp_screen, B(xstart + 2), B(ystart + 7), "ORDER LiST ENTRiES: ~" + Num2str(order_entries, 10) + "/128~  ",
+                 dialog_background + dialog_text, dialog_background + dialog_context_dis);
+        ShowStr(temp_screen, B(xstart + 51), B(ystart + 2), "iNiTiAL LOCK SETTiNGS", dialog_background + dialog_context_dis);
+        ShowStr(temp_screen, B(xstart + 51), B(ystart + 3), ExpStrL("", 27, '\x9A'), dialog_background + dialog_context_dis);
+
+        // オリジナルは 7 個だけ保存して 29 個書き込むため、閉じた後も 8 番目以降は Alt+N などのままになる
+        uint16_t old_keys[7];
+        std::memcpy(old_keys, is_setting.terminate_keys, sizeof(old_keys));
+        std::memcpy(is_setting.terminate_keys, new_keys, sizeof(new_keys));
+
+        {
+            PlayerLock lock;
+            FixedSongData& sd = songdata();
+            sd.songname.assign(truncate_string(sd.songname.str()));
+            sd.composer.assign(truncate_string(sd.composer.str()));
+        }
+
+        if (!_force_program_quit) {
+            do {
+                {
+                    PlayerLock lock;
+                    const A2Player& p = P();
+                    const FixedSongData& sd = songdata();
+
+                    _left_pos_4op[3] = sd.nm_tracks < 11 ? 80 : 123;
+                    _left_pos_4op[4] = sd.nm_tracks < 12 ? 81 : 127;
+                    for (int temp = 1; temp <= 6; ++temp)
+                        _right_pos_4op[temp - 1] = _right_pos_4op_def[temp - 1][sd.nm_tracks < 8 + temp - 1 ? 1 : 0];
+                    _up_pos_4op[0] = sd.nm_tracks < 7 ? 17 : 36;
+                    for (int temp = 1; temp <= 19; ++temp)
+                        _right_pos_lck[(temp - 1) * 4 + 3] = _right_pos_lck_def[temp - 1][sd.nm_tracks < temp + 1 ? 1 : 0];
+
+                    // attr[n]: 下位が文字の色、上位がホットキーの色
+                    uint16_t attr[164] = {};
+                    constexpr uint16_t hi = dialog_hi_text + (dialog_hi_text << 8);
+                    constexpr uint16_t lo = dialog_text + (dialog_title << 8);
+                    for (int temp2 = 1; temp2 <= 18; ++temp2) attr[temp2] = pos == temp2 ? hi : lo;
+                    if (pos == 4) attr[5] = 0;
+                    else if (pos == 5) attr[4] = 0;
+                    else attr[5] = 0;
+                    if (pos == 9) attr[10] = 0;
+                    else if (pos == 10) attr[9] = 0;
+                    else attr[10] = 0;
+                    if (pos == 11) attr[12] = 0;
+                    else if (pos == 12) attr[11] = 0;
+                    else attr[11] = 0;
+                    attr[RANGE_PAN_LO] = in_pan(pos) ? hi : lo;
+                    attr[RANGE_4OP_LO] = in_4op(pos) ? hi : lo;
+                    for (int col = 0; col <= 3; ++col) attr[RANGE_LCK_LO + col] = in_lck(pos) && pos % 4 == col ? hi : lo;
+
+                    const auto A = [](uint16_t a) { return B(dialog_background + LO(a)); };
+                    const auto H = [](uint16_t a) { return B(dialog_background + HI(a)); };
+                    const auto A2 = [](uint16_t a, uint16_t b) { return B(dialog_background + LO(a) + LO(b)); };
+                    const auto H2 = [](uint16_t a, uint16_t b) { return B(dialog_background + HI(a) + HI(b)); };
+
+                    ShowCStr(temp_screen, B(xstart + 34), B(ystart + 12), "\x04\x03 TRAC~K~S  \x04\x03+", A(attr[RANGE_4OP_LO]),
+                             H(attr[RANGE_4OP_LO]));
+
+                    for (int temp = 1; temp <= 6; ++temp) {
+                        if ((sd.flag_4op | (1 << (temp - 1))) == sd.flag_4op)
+                            ShowC3Str(temp_screen, B(xstart + 34), B(ystart + 13 + temp - 1),
+                                      std::string("[~\xFB~] ") + _4op_str[temp - 1] + "`[ ]`", dialog_background + dialog_text,
+                                      dialog_background + dialog_item, dialog_background + dialog_text);
+                        else
+                            ShowC3Str(temp_screen, B(xstart + 34), B(ystart + 13 + temp - 1),
+                                      std::string("[~ ~] ") + _4op_str[temp - 1] + "`[ ]`", dialog_background + dialog_text,
+                                      dialog_background + dialog_item, dialog_background + dialog_item_dis);
+                    }
+
+                    ShowCStr(temp_screen, B(xstart + 51), B(ystart + 4), "PANNiN~G~", A(attr[RANGE_PAN_LO]), H(attr[RANGE_PAN_LO]));
+                    ShowStr(temp_screen, B(xstart + 51), B(ystart + 5), "\xAA  c  \xAB", A(attr[18]));
+
+                    static const char* const lck_titles[4] = { "~M~\x1F", "~C~\x1F", "~V~\x1F", "~P~\x1F" };
+                    static const char* const lck_marks[4] = { "\x0A", "\x0A", "+", "+" };
+                    for (int col = 0; col <= 3; ++col) {
+                        ShowVCStr(temp_screen, B(xstart + 64 + col * 4), B(ystart + 4), lck_titles[col], A(attr[RANGE_LCK_LO + col]),
+                                  H(attr[RANGE_LCK_LO + col]));
+                        ShowVStr(temp_screen, B(xstart + 65 + col * 4), B(ystart + 4), lck_marks[col], A(attr[RANGE_LCK_LO + col]));
+                    }
+
+                    std::string temps;
+                    for (int temp = 1; temp <= 6; ++temp) {
+                        const uint8_t main_chan = _4op_main_chan[temp - 1];
+                        if ((sd.lock_flags[main_chan - 1] | 0x40) == sd.lock_flags[main_chan - 1] ||
+                            (sd.lock_flags[main_chan - 2] | 0x40) == sd.lock_flags[main_chan - 2])
+                            temps += '\xFB';
+                        else temps += ' ';
+                    }
+                    ShowVStr(temp_screen, B(xstart + 46), B(ystart + 13), temps, dialog_background + dialog_item);
+
+                    for (int temp = 1; temp <= 20; ++temp) {
+                        if (temp <= sd.nm_tracks) {
+                            const uint8_t flags = sd.lock_flags[temp - 1];
+                            ShowCStr(temp_screen, B(xstart + 51), B(ystart + 6 + temp - 1), voice_pan_str[flags & 3],
+                                     dialog_background + dialog_text, dialog_background + dialog_item);
+                            ShowCStr(temp_screen, B(xstart + 60), B(ystart + 6 + temp - 1),
+                                     "~" + ExpStrL(Num2str(temp, 10), 2, ' ') + "~  " + _on_off[flags >> 3 & 1] + " ~\xF6~ " +
+                                         _on_off[flags >> 2 & 1] + " ~\xF6~ " + _on_off[flags >> 4 & 1] + " ~\xF6~ " +
+                                         _on_off[flags >> 5 & 1],
+                                     dialog_background + dialog_item, dialog_background + dialog_context_dis);
+                        } else {
+                            ShowStr(temp_screen, B(xstart + 51), B(ystart + 6 + temp - 1),
+                                    std::string(voice_pan_str[3]) + "  " + ExpStrL(Num2str(temp, 10), 2, ' ') +
+                                        "  \xFA \xF6 \xFA \xF6 \xFA \xF6 \xFA",
+                                    dialog_background + dialog_hid);
+                        }
+                    }
+
+                    temps.clear();
+                    for (int temp = 1; temp <= sd.nm_tracks; ++temp) {
+                        if (p.percussion_mode && temp >= 16 && temp <= 20) {
+                            temps += _perc_char[temp - 16];
+                            continue;
+                        }
+                        // 4OP の組の 1 つ目は #172、2 つ目は #173
+                        static const int pair_bit[21] = { 0, 1, 1, 2, 2, 4, 4, 0, 0, 0, 8, 8, 0x10, 0x10, 0x20, 0x20, 0, 0, 0, 0, 0 };
+                        static const char pair_chr[21] = { 0,      '\xAC', '\xAD', '\xAC', '\xAD', '\xAC', '\xAD', 0, 0, 0, '\xAC',
+                                                           '\xAD', '\xAC', '\xAD', '\xAC', '\xAD', 0,      0,      0, 0, 0 };
+                        const int bit = temp <= 20 ? pair_bit[temp] : 0;
+                        temps += bit != 0 && (sd.flag_4op | bit) == sd.flag_4op ? pair_chr[temp] : ' ';
+                    }
+                    ShowVStr(temp_screen, B(xstart + 50), B(ystart + 6), ExpStrR(temps, 20, ' '), dialog_background + dialog_misc_indic);
+
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 1), "SONG~N~AME", A(attr[1]), H(attr[1]));
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 3), "COMPOS~E~R", A(attr[2]), H(attr[2]));
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 9), "SONG ~T~EMPO", A(attr[3]), H(attr[3]));
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 10), "SONG ~S~PEED", A2(attr[4], attr[5]), H2(attr[4], attr[5]));
+                    ShowC3Str(temp_screen, B(xstart + 26), B(ystart + 10), "[ ] ~`R`ESET~", dialog_background + dialog_text,
+                              A2(attr[4], attr[5]), H2(attr[4], attr[5]));
+                    ShowC3Str(temp_screen, B(xstart + 2), B(ystart + 11), "~MACRO`D`EF.~ \x07", dialog_background + dialog_text,
+                              A(attr[17]), H(attr[17]));
+
+                    ShowCStr(temp_screen, B(xstart + 31), B(ystart + 7),
+                             "RHYTHM: ~" + ExpStrL(Bpm2str(calc_bpm_speed(sd.tempo, sd.speed, p.mark_line)) + " BPM", 9, ' '),
+                             dialog_background + dialog_text, dialog_background + dialog_misc_indic);
+
+                    const auto check = [&](uint8_t x, uint8_t y, bool on) {
+                        ShowStr(temp_screen, x, y, on ? "\xFB" : " ", dialog_background + dialog_item);
+                    };
+                    check(B(xstart + 27), B(ystart + 10), p.speed_update);
+
+                    ShowC3Str(temp_screen, B(xstart + 2), B(ystart + 13), "[ ] ~TRACK VOLUME L`O`CK~", dialog_background + dialog_text,
+                              A(attr[6]), H(attr[6]));
+                    ShowC3Str(temp_screen, B(xstart + 2), B(ystart + 14), "[ ] ~TRACK PANN`i`NG LOCK~", dialog_background + dialog_text,
+                              A(attr[7]), H(attr[7]));
+                    ShowC3Str(temp_screen, B(xstart + 2), B(ystart + 15), "[ ] ~VOLUME PE`A`K LOCK~", dialog_background + dialog_text,
+                              A(attr[8]), H(attr[8]));
+                    check(B(xstart + 3), B(ystart + 13), p.lockvol);
+                    check(B(xstart + 3), B(ystart + 14), p.panlock);
+                    check(B(xstart + 3), B(ystart + 15), p.lockVP);
+
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 17), "TREMO~L~O DEPTH", A2(attr[9], attr[10]), H2(attr[9], attr[10]));
+                    ShowStr(temp_screen, B(xstart + 2), B(ystart + 18), "( ) 1 dB", dialog_background + dialog_text);
+                    ShowStr(temp_screen, B(xstart + 2), B(ystart + 19), "( ) 4.8 dB", dialog_background + dialog_text);
+                    ShowVStr(temp_screen, B(xstart + 3), B(ystart + 18), p.tremolo_depth == 0 ? "\x0B " : " \x0B",
+                             dialog_background + dialog_item);
+
+                    ShowCStr(temp_screen, B(xstart + 18), B(ystart + 17), "Vi~B~RATO DEPTH", A2(attr[11], attr[12]),
+                             H2(attr[11], attr[12]));
+                    ShowStr(temp_screen, B(xstart + 18), B(ystart + 18), "( ) 7%", dialog_background + dialog_text);
+                    ShowStr(temp_screen, B(xstart + 18), B(ystart + 19), "( ) 14%", dialog_background + dialog_text);
+                    ShowVStr(temp_screen, B(xstart + 19), B(ystart + 18), p.vibrato_depth == 0 ? "\x0B " : " \x0B",
+                             dialog_background + dialog_item);
+
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 21), "PATTERN LENGT~H~", A(attr[13]), H(attr[13]));
+                    ShowCStr(temp_screen, B(xstart + 2), B(ystart + 22), "NUMBER O~F~ TRACKS", A(attr[14]), H(attr[14]));
+
+                    ShowC3Str(temp_screen, B(xstart + 2), B(ystart + 24),
+                              "[ ] ~PERCUSSiON TRACK E`X`TENSiON (\xA0,\xA1,\xA2,\xA3,\xA4)~", dialog_background + dialog_text,
+                              A(attr[15]), H(attr[15]));
+                    check(B(xstart + 3), B(ystart + 24), p.percussion_mode);
+
+                    ShowC3Str(temp_screen, B(xstart + 2), B(ystart + 25), "[ ] ~VOL`U`ME SCALiNG~", dialog_background + dialog_text,
+                              A(attr[16]), H(attr[16]));
+                    check(B(xstart + 3), B(ystart + 25), p.volume_scaling);
+
+                    is_setting.append_enabled = true;
+                    is_environment.locate_pos = 1;
+
+                    ShowStr(temp_screen, B(xstart + 2), B(ystart + 2), ExpStrR(sd.songname.str(), 46, ' '),
+                            dialog_input_bckg + dialog_input);
+                    ShowStr(temp_screen, B(xstart + 2), B(ystart + 4), ExpStrR(sd.composer.str(), 46, ' '),
+                            dialog_input_bckg + dialog_input);
+                    ShowCStr(temp_screen, B(xstart + 13), B(ystart + 9), ExpStrR(Num2str(sd.tempo, 10), 4, ' ') + "~ {1..255}~",
+                             dialog_input_bckg + dialog_input, dialog_background + dialog_text);
+                    ShowCStr(temp_screen, B(xstart + 13), B(ystart + 10), ExpStrR(Num2str(sd.speed, 16), 4, ' ') + "~ {1..FF}~",
+                             dialog_input_bckg + dialog_input, dialog_background + dialog_text);
+                    ShowCStr(temp_screen, B(xstart + 13), B(ystart + 11),
+                             "~" + ExpStrR(Num2str(sd.macro_speedup, 10), 4, ' ') + "~ {1.." +
+                                 Num2str(calc_max_speedup(sd.tempo), 10) + "}   ",
+                             dialog_background + dialog_text, dialog_input_bckg + dialog_input);
+                    ShowCStr(temp_screen, B(xstart + 19), B(ystart + 21), ExpStrR(Num2str(sd.patt_len, 10), 3, ' ') + "~ {1..256}~",
+                             dialog_input_bckg + dialog_input, dialog_background + dialog_text);
+                    ShowCStr(temp_screen, B(xstart + 19), B(ystart + 22), ExpStrR(Num2str(sd.nm_tracks, 10), 3, ' ') + "~ {1..20}~",
+                             dialog_input_bckg + dialog_input, dialog_background + dialog_text);
+                }
+
+                move2screen_alt();
+                _song_variables_pos = pos;
+
+                const FixedSongData& sd = songdata();
+                std::string temps;
+                const uint8_t input_attr = dialog_input_bckg + dialog_input;
+                const uint8_t def_attr = dialog_def_bckg + dialog_def;
+                const auto key = [&]() { return is_environment.keystroke; };
+                // チェックボックスなど: カーソルを置いてキーを待つ
+                const auto wait_key = [&](uint8_t x, uint8_t y) {
+                    GotoXY(x, y);
+                    set_cursor();
+                    is_environment.keystroke = getkey();
+                    _check_key_shortcuts();
+                };
+
+                if (pos == 1 || pos == 2) {
+                    is_setting.character_set = CharRange(32, 255);
+                    temps = InputStr(pos == 1 ? sd.songname.str() : sd.composer.str(), B(xstart + 2), B(ystart + (pos == 1 ? 2 : 4)),
+                                     42, 42, input_attr, def_attr);
+                    {
+                        PlayerLock lock;
+                        if (pos == 1) songdata().songname.assign(truncate_string(temps));
+                        else songdata().composer.assign(truncate_string(temps));
+                    }
+                    _check_key_shortcuts();
+                    if (pos == 1) {
+                        if (key() == kENTER || key() == kTAB || key() == kDOWN) pos = 2;
+                        else if (key() == kUP) pos = 16;
+                        else if (key() == kShTAB) pos = in_lck(_old_pos_lck) ? B(RANGE_LCK_LO + 3 + (_old_pos_lck - RANGE_LCK_LO) / 4 * 4)
+                                                                             : B(RANGE_LCK_LO + 3);
+                    } else if (pos == 2) {
+                        if (key() == kENTER || key() == kTAB || key() == kDOWN) pos = 3;
+                        else if (key() == kUP || key() == kShTAB) pos = 1;
+                    }
+                } else if (pos == 3) {
+                    is_setting.character_set = DEC_NUM_CHARSET;
+                    is_environment.ext_proc = _show_current_bpm_with_hints;
+                    is_environment.min_num = 1;
+                    is_environment.max_num = 255;
+                    do {
+                        temps = InputStr(Num2str(sd.tempo, 10), B(xstart + 13), B(ystart + 9), 3, 3, input_attr, def_attr);
+                    } while (!(key() == kESC || (Str2num(temps, 10) > 0 && Str2num(temps, 10) < 256)));
+                    is_environment.ext_proc = nullptr;
+                    {
+                        PlayerLock lock;
+                        A2Player& p = P();
+                        FixedSongData& wsd = songdata();
+                        if (Str2num(temps, 10) > 0 && Str2num(temps, 10) < 256) {
+                            wsd.tempo = B(Str2num(temps, 10));
+                            if (p.play_status == PlayStatus::Stopped) p.tempo = wsd.tempo;
+                        }
+                        if (calc_max_speedup(wsd.tempo) < wsd.macro_speedup) wsd.macro_speedup = calc_max_speedup(wsd.tempo);
+                    }
+                    _check_key_shortcuts();
+                    if (key() == kENTER || key() == kTAB || key() == kDOWN) pos = 4;
+                    else if (key() == kUP || key() == kShTAB) pos = 2;
+                } else if (pos == 4) {
+                    is_setting.character_set = HEX_NUM_CHARSET;
+                    is_environment.ext_proc = _show_current_bpm_with_hints;
+                    is_environment.min_num = 1;
+                    is_environment.max_num = 255;
+                    const auto valid = [&]() { return Str2num(temps, 16) >= 1 && Str2num(temps, 16) <= 255; };
+                    do {
+                        temps = InputStr(Num2str(sd.speed, 16), B(xstart + 13), B(ystart + 10), 2, 2, input_attr, def_attr);
+                    } while (!(key() == kESC || valid()));
+                    is_environment.ext_proc = nullptr;
+                    if (valid()) {
+                        PlayerLock lock;
+                        A2Player& p = P();
+                        songdata().speed = B(Str2num(temps, 16));
+                        if (p.play_status == PlayStatus::Stopped) p.speed = songdata().speed;
+                    }
+                    _check_key_shortcuts();
+                    if (key() == kENTER || key() == kTAB) pos = 5;
+                    else if (key() == kDOWN) pos = 17;
+                    else if (key() == kUP || key() == kShTAB) pos = 3;
+                } else if (pos == 5) {
+                    wait_key(B(xstart + 27), B(ystart + 10));
+                    switch (key()) {
+                    case kUP: pos = 3; break;
+                    case kLEFT: case kShTAB: pos = 4; break;
+                    case kDOWN: case kTAB: case kENTER: pos = 17; break;
+                    case kRIGHT: pos = sd.nm_tracks < 5 ? 17 : 30; break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        P().speed_update = !P().speed_update;
+                        break;
+                    }
+                    }
+                } else if (pos == 17) {
+                    is_setting.character_set = DEC_NUM_CHARSET;
+                    is_environment.min_num = 1;
+                    is_environment.max_num = calc_max_speedup(sd.tempo);
+                    const auto valid = [&]() { return Str2num(temps, 10) >= 1 && Str2num(temps, 10) <= calc_max_speedup(sd.tempo); };
+                    do {
+                        temps = InputStr(Num2str(sd.macro_speedup, 10), B(xstart + 13), B(ystart + 11), 4, 4, input_attr, def_attr);
+                    } while (!(key() == kESC || valid()));
+                    if (valid()) {
+                        PlayerLock lock;
+                        songdata().macro_speedup = static_cast<uint16_t>(Str2num(temps, 10));
+                    }
+                    _check_key_shortcuts();
+                    if (key() == kENTER || key() == kTAB || key() == kDOWN) pos = 6;
+                    else if (key() == kUP) pos = 4;
+                    else if (key() == kShTAB) pos = 5;
+                } else if (pos == 6) {
+                    wait_key(B(xstart + 3), B(ystart + 13));
+                    switch (key()) {
+                    case kLEFT: pos = sd.nm_tracks < 7 ? 17 : 111; break;
+                    case kUP: case kShTAB: pos = 17; break;
+                    case kDOWN: case kTAB: case kENTER: pos = 7; break;
+                    case kRIGHT: pos = _old_pos_4op; break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        P().lockvol = !P().lockvol;
+                        break;
+                    }
+                    }
+                } else if (pos == 7) {
+                    wait_key(B(xstart + 3), B(ystart + 14));
+                    switch (key()) {
+                    case kUP: case kShTAB: pos = 6; break;
+                    case kLEFT: pos = sd.nm_tracks < 8 ? 78 : 115; break;
+                    case kTAB: case kENTER: case kDOWN: pos = 8; break;
+                    case kRIGHT: pos = 79; break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        P().panlock = !P().panlock;
+                        break;
+                    }
+                    }
+                } else if (pos == 8) {
+                    wait_key(B(xstart + 3), B(ystart + 15));
+                    switch (key()) {
+                    case kUP: case kShTAB: pos = 7; break;
+                    case kLEFT: pos = sd.nm_tracks < 9 ? 79 : 119; break;
+                    case kDOWN: pos = 9; break;
+                    case kTAB: case kENTER: pos = P().tremolo_depth == 0 ? 9 : 10; break;
+                    case kRIGHT: pos = 80; break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        P().lockVP = !P().lockVP;
+                        break;
+                    }
+                    }
+                } else if (pos == 9 || pos == 10) {
+                    wait_key(B(xstart + 3), B(ystart + (pos == 9 ? 18 : 19)));
+                    const uint8_t vib_pos = P().vibrato_depth == 0 ? 11 : 12;
+                    if (pos == 9) {
+                        switch (key()) {
+                        case kUP: case kShTAB: pos = 8; break;
+                        case kLEFT: pos = sd.nm_tracks < 12 ? 82 : 131; break;
+                        case kRIGHT: case kTAB: case kENTER: pos = vib_pos; break;
+                        case kDOWN: pos = 10; break;
+                        case kSPACE: {
+                            PlayerLock lock;
+                            P().tremolo_depth = 0;
+                            break;
+                        }
+                        }
+                    } else {
+                        switch (key()) {
+                        case kUP: pos = 9; break;
+                        case kShTAB: pos = 8; break;
+                        case kDOWN: pos = 13; break;
+                        case kTAB: case kENTER: pos = vib_pos; break;
+                        case kLEFT: pos = sd.nm_tracks < 13 ? 83 : 135; break;
+                        case kRIGHT: pos = 12; break;
+                        case kSPACE: {
+                            PlayerLock lock;
+                            P().tremolo_depth = 1;
+                            break;
+                        }
+                        }
+                    }
+                } else if (pos == 11 || pos == 12) {
+                    wait_key(B(xstart + 19), B(ystart + (pos == 11 ? 18 : 19)));
+                    if (pos == 11) {
+                        switch (key()) {
+                        case kUP: pos = 8; break;
+                        case kShTAB: pos = P().tremolo_depth == 0 ? 9 : 10; break;
+                        case kDOWN: pos = 12; break;
+                        case kTAB: case kENTER: pos = 13; break;
+                        case kLEFT: pos = 9; break;
+                        case kRIGHT: pos = 83; break;
+                        case kSPACE: {
+                            PlayerLock lock;
+                            P().vibrato_depth = 0;
+                            break;
+                        }
+                        }
+                    } else {
+                        switch (key()) {
+                        case kUP: pos = 11; break;
+                        case kShTAB: pos = 9; break;
+                        case kDOWN: case kTAB: case kENTER: pos = 13; break;
+                        case kLEFT: pos = 10; break;
+                        case kRIGHT: pos = sd.nm_tracks < 14 ? 13 : 57; break;
+                        case kSPACE: {
+                            PlayerLock lock;
+                            P().vibrato_depth = 1;
+                            break;
+                        }
+                        }
+                    }
+                } else if (pos == 13) {
+                    is_setting.character_set = DEC_NUM_CHARSET;
+                    is_environment.min_num = 1;
+                    is_environment.max_num = 256;
+                    const auto valid = [&]() { return Str2num(temps, 10) >= 1 && Str2num(temps, 10) <= 256; };
+                    do {
+                        temps = InputStr(Num2str(sd.patt_len, 10), B(xstart + 19), B(ystart + 21), 3, 3, input_attr, def_attr);
+                    } while (!(key() == kESC || valid()));
+                    if (valid()) {
+                        {
+                            PlayerLock lock;
+                            A2Player& p = P();
+                            const uint16_t new_len = static_cast<uint16_t>(Str2num(temps, 10));
+                            if (p.current_line <= new_len) {
+                                songdata().patt_len = new_len;
+                            } else {
+                                const bool backup_replay_forbidden = p.replay_forbidden;
+                                const PlayStatus backup_play_status = p.play_status;
+                                p.replay_forbidden = true;
+                                if (p.play_status != PlayStatus::Stopped) p.play_status = PlayStatus::Paused;
+                                p.pattern_break = true;
+                                p.next_line = 0;
+                                p.ticks = p.tick0;
+                                p.update_song_position();
+                                songdata().patt_len = new_len;
+                                p.replay_forbidden = backup_replay_forbidden;
+                                p.play_status = backup_play_status;
+                            }
+                        }
+                        refresh_pages();
+                    }
+                    _check_key_shortcuts();
+                    if (key() == kENTER || key() == kTAB || key() == kDOWN) pos = 14;
+                    else if (key() == kUP) pos = 12;
+                    else if (key() == kShTAB) pos = P().vibrato_depth == 0 ? 11 : 12;
+                } else if (pos == 14) {
+                    is_setting.character_set = DEC_NUM_CHARSET;
+                    is_environment.min_num = 1;
+                    is_environment.max_num = 20;
+                    const auto valid = [&]() { return Str2num(temps, 10) >= 1 && Str2num(temps, 10) <= 20; };
+                    do {
+                        temps = InputStr(Num2str(sd.nm_tracks, 10), B(xstart + 19), B(ystart + 22), 2, 2, input_attr, def_attr);
+                    } while (!(key() == kESC || valid()));
+                    if (valid()) {
+                        {
+                            PlayerLock lock;
+                            A2Player& p = P();
+                            FixedSongData& wsd = songdata();
+                            wsd.nm_tracks = B(Str2num(temps, 10));
+                            if (wsd.nm_tracks > 18 && !p.percussion_mode) {
+                                p.reset_player();
+                                p.percussion_mode = true;
+                                p.select_chan_tables();
+                                p.reset_player();
+                            }
+                            // 4OP の組に使うトラックがなくなったら、その組を外す
+                            static const struct { uint8_t min_tracks, bit; } pairs[6] = {
+                                { 15, 0x20 }, { 13, 0x10 }, { 11, 8 }, { 6, 4 }, { 4, 2 }, { 2, 1 } };
+                            for (const auto& pair : pairs) {
+                                if (wsd.nm_tracks < pair.min_tracks && (wsd.flag_4op | pair.bit) == wsd.flag_4op) {
+                                    p.reset_player();
+                                    wsd.flag_4op = B(wsd.flag_4op & ~pair.bit);
+                                    p.reset_player();
+                                }
+                            }
+                        }
+                        refresh_pages();
+                    }
+                    _check_key_shortcuts();
+                    if (key() == kENTER || key() == kTAB || key() == kDOWN) pos = 15;
+                    else if (key() == kUP || key() == kShTAB) pos = 13;
+                } else if (pos == 15) {
+                    wait_key(B(xstart + 3), B(ystart + 24));
+                    switch (key()) {
+                    case kLEFT: pos = sd.nm_tracks < 18 ? 14 : 155; break;
+                    case kRIGHT: pos = sd.nm_tracks < 19 ? 16 : 72; break;
+                    case kUP: case kShTAB: pos = 14; break;
+                    case kDOWN: case kTAB: case kENTER: pos = 16; break;
+                    }
+                    if (key() == kSPACE) {
+                        PlayerLock lock;
+                        A2Player& p = P();
+                        FixedSongData& wsd = songdata();
+                        p.reset_player();
+                        if (!p.percussion_mode) {
+                            wsd.nm_tracks = 20;
+                            p.percussion_mode = true;
+                        } else {
+                            if (wsd.nm_tracks > 18) wsd.nm_tracks = 18;
+                            p.percussion_mode = false;
+                        }
+                        p.select_chan_tables();
+                        p.reset_player();
+                        if (p.play_status == PlayStatus::Stopped) p.init_buffers();
+                    }
+                    refresh_pages();
+                } else if (pos == 16) {
+                    wait_key(B(xstart + 3), B(ystart + 25));
+                    switch (key()) {
+                    case kUP: case kShTAB: pos = 15; break;
+                    case kLEFT: pos = sd.nm_tracks < 19 ? 15 : 159; break;
+                    case kRIGHT: pos = sd.nm_tracks < 20 ? 1 : 75; break;
+                    case kDOWN: pos = 1; break;
+                    case kTAB: case kENTER:
+                        pos = _old_pos_4op;
+                        pos_4op = 0;
+                        break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        P().volume_scaling = !P().volume_scaling;
+                        break;
+                    }
+                    }
+                } else if (in_pan(pos)) {
+                    const int rel = pos - RANGE_PAN_LO;
+                    GotoXY(B(xstart + 51 + rel % 3 * 3), B(ystart + 6 + rel / 3));
+                    set_cursor();
+                    is_environment.keystroke = getkey();
+                    _old_pos_pan = pos;
+                    _check_key_shortcuts();
+                    switch (key()) {
+                    case kLEFT: pos = _left_pos_pan[rel]; break;
+                    case kRIGHT: pos = _right_pos_pan[rel]; break;
+                    case kUP:
+                        if (rel / 3 > 0) pos -= 3;
+                        else pos = B(pos + (sd.nm_tracks - 1) * 3);
+                        break;
+                    case kDOWN:
+                        if (rel / 3 < sd.nm_tracks - 1) pos += 3;
+                        else pos = B(18 + rel % 3);
+                        break;
+                    case kShTAB:
+                        pos = _old_pos_4op;
+                        pos_4op = 0;
+                        break;
+                    case kTAB: case kENTER: pos = B(RANGE_LCK_LO + rel / 3 * 4); break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        uint8_t& flags = songdata().lock_flags[rel / 3];
+                        flags = B((flags & ~3) + _pan_pos[rel % 3]);
+                        P().panlock = true;
+                        break;
+                    }
+                    }
+                } else if (in_4op(pos)) {
+                    const int idx = pos - RANGE_4OP_LO;   // 0..5
+                    const auto has_pair = [&]() { return (sd.flag_4op | (1 << idx)) == sd.flag_4op; };
+                    if (pos_4op != 0 && !has_pair()) pos_4op = 0;
+                    GotoXY(B(xstart + 35 + pos_4op * 11), B(ystart + 13 + idx));
+                    set_cursor();
+                    is_environment.keystroke = getkey();
+                    _old_pos_4op = pos;
+                    _check_key_shortcuts();
+                    switch (key()) {
+                    case kLEFT:
+                        if (pos_4op != 0) pos_4op = 0;
+                        else pos = _left_pos_4op[idx];
+                        break;
+                    case kRIGHT:
+                        if (pos_4op != 1 && has_pair()) pos_4op = 1;
+                        else pos = _right_pos_4op[idx];
+                        break;
+                    case kUP: pos = pos > 78 ? _up_pos_4op[idx] : 17; break;
+                    case kDOWN: pos = _down_pos_4op[idx]; break;
+                    case kShTAB: pos = 16; break;
+                    case kTAB: case kENTER: pos = in_pan(_old_pos_pan) ? _old_pos_pan : 19; break;
+                    }
+
+                    // オリジナルどおり、キーで pos が変わった後の位置で切り替える
+                    if (key() == kSPACE) {
+                        PlayerLock lock;
+                        A2Player& p = P();
+                        FixedSongData& wsd = songdata();
+                        const int n = pos - RANGE_4OP_LO + 1;
+                        const uint8_t bit = B(1 << (n - 1));
+                        if (pos_4op == 0) {
+                            if ((wsd.flag_4op | bit) != wsd.flag_4op) {
+                                static const uint8_t min_tracks[6] = { 2, 4, 6, 11, 13, 15 };
+                                p.reset_player();
+                                // オリジナルの min は大きい方を返す
+                                wsd.nm_tracks = std::max(wsd.nm_tracks, min_tracks[n - 1]);
+                                wsd.flag_4op = B(wsd.flag_4op | bit);
+                                p.reset_player();
+                                if (p.play_status == PlayStatus::Stopped) p.init_buffers();
+                            } else {
+                                p.reset_player();
+                                wsd.flag_4op = B(wsd.flag_4op & ~bit);
+                                p.reset_player();
+                                if (p.play_status == PlayStatus::Stopped) p.init_buffers();
+                            }
+                        } else if (pos_4op == 1) {
+                            const uint8_t main_chan = _4op_main_chan[n - 1];
+                            wsd.lock_flags[main_chan - 1] ^= 0x40;
+                            wsd.lock_flags[main_chan - 2] ^= 0x40;
+                        }
+                    }
+                    refresh_pages();
+                } else if (in_lck(pos)) {
+                    const int rel = pos - RANGE_LCK_LO;
+                    GotoXY(B(xstart + 64 + rel % 4 * 4), B(ystart + 6 + rel / 4));
+                    set_cursor();
+                    is_environment.keystroke = getkey();
+                    _old_pos_lck = pos;
+                    _check_key_shortcuts();
+                    switch (key()) {
+                    case kLEFT: pos = _left_pos_lck[rel]; break;
+                    case kRIGHT: pos = _right_pos_lck[rel]; break;
+                    case kUP:
+                        if (rel / 4 > 0) pos -= 4;
+                        else pos = B(RANGE_LCK_LO + (sd.nm_tracks - 1) * 4 + rel % 4);
+                        break;
+                    case kDOWN:
+                        if (rel / 4 < sd.nm_tracks - 1) pos += 4;
+                        else pos = B(RANGE_LCK_LO + rel % 4);
+                        break;
+                    case kShTAB:
+                        if (rel % 4 == 0) pos = B(RANGE_PAN_LO + 1 + rel / 4 * 3);
+                        else --pos;
+                        break;
+                    case kTAB: case kENTER:
+                        if (rel % 4 == 3) pos = 1;
+                        else ++pos;
+                        break;
+                    case kSPACE: {
+                        PlayerLock lock;
+                        uint8_t& flags = songdata().lock_flags[rel / 4];
+                        static const uint8_t bits[4] = { 8, 4, 0x10, 0x20 };
+                        flags ^= bits[rel % 4];
+                        if (rel % 4 == 2) P().lockvol = true;
+                        if (rel % 4 == 3) P().lockVP = true;
+                        break;
+                    }
+                    }
+                }
+
+                draw_screen();
+            } while (!(is_environment.keystroke == kESC || is_environment.keystroke == kF1 || is_environment.keystroke == kCtENTR));
+        }
+
+        {
+            PlayerLock lock;
+            A2Player& p = P();
+            FixedSongData& sd = songdata();
+            if (nm_track_chan > sd.nm_tracks) nm_track_chan = sd.nm_tracks;
+            sd.common_flag = B(static_cast<uint8_t>(p.speed_update) + (static_cast<uint8_t>(p.lockvol) << 1) +
+                               (static_cast<uint8_t>(p.lockVP) << 2) + (p.tremolo_depth << 3) + (p.vibrato_depth << 4) +
+                               (static_cast<uint8_t>(p.panlock) << 5) + (static_cast<uint8_t>(p.percussion_mode) << 6) +
+                               (static_cast<uint8_t>(p.volume_scaling) << 7));
+            if (Update32(&sd, sizeof(FixedSongData), 0) != songdata_crc) module_archived = false;
+            if (p.play_status == PlayStatus::Stopped) {
+                p.current_tremolo_depth = p.tremolo_depth;
+                p.current_vibrato_depth = p.vibrato_depth;
+            }
+        }
+
+        add_bank_position("?song_variables_window?pos", -1, pos);
+        add_bank_position("?song_variables_window?pos_4op", -1, pos_4op);
+        HideCursor();
+        std::memcpy(is_setting.terminate_keys, old_keys, sizeof(old_keys));
+        move_to_screen_data = screen_backup;
+        move_to_screen_area[1] = xstart;
+        move_to_screen_area[2] = ystart;
+        move_to_screen_area[3] = B(xstart + 79 + 2);
+        move_to_screen_area[4] = B(ystart + 26 + 1);
+        move2screen();
+
+        {
+            PlayerLock lock;
+            _IRQFREQ_update_event = false;
+            _show_bpm_realtime_proc = old_bpm_proc;
+        }
+        // オリジナルどおり SizeOf(DWORD) (= 4) に戻す
+        is_environment.min_num = 1;
+        is_environment.max_num = 4;
+
+        // F1 は開き直す (ヘルプは未実装)。Ctrl+Enter は行の印の設定を開いてから開き直す
+        if (is_environment.keystroke == kF1) continue;
+        if (is_environment.keystroke == kCtENTR) {
+            LINE_MARKING_SETUP();
+            continue;
+        }
+        break;
+    }
 }

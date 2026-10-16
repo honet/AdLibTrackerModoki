@@ -57,6 +57,7 @@
 | A2P 保存時、パターン名の後ろ (31 バイト目まで) に作業用バッファの前の内容が残る | adt2ext*.pas → core/song/ModuleSaver.cpp | 回避 (0) |
 | 旧形式の A2P 読み込みで、グローバル変数 `old_hash_buffer` に前回の内容が残る | iloaders.inc → core/song/A2pLoader.cpp | 回避 (0 から始める) |
 | グローバルなバッファ `buf1` の、読み込んだサイズより後ろに以前の内容が残る | iloaders.inc → core/song/LoaderCommon.h | 再現 |
+| 曲の設定 (Ctrl+F) は InputStr の terminate_keys に 29 個のキーを書き込むが、元に戻すために保存するのは先頭の 7 個だけなので、閉じた後も 8 番目以降 (Ctrl+Enter、Alt+N など) が終了キーのまま残る。以後の文字列入力 (パターン名など) はこれらのキーでも終わる (ソースで確認) | adt2extn.pas `SONG_VARIABLES` → ui/EditTools.inl | 再現 |
 | `Menu` の作業用配列 (1..16384) で、項目数より後ろに前回のメニューの値が残る | dialogio.pas → ui/DialogIO.cpp | 再現 |
 | SAT の再開位置を、For ループを抜けた後のループ変数で書き込む (未定義の値) | iloaders.inc → core/song/SatLoader.cpp | 回避 (1 回も回らない場合は -1 とみなす) |
 | エフェクト名を返す関数が、case に当てはまらない値のとき結果が未定義 | adt2ext*.pas → ui/MainScreen.cpp | 回避 (空欄) |

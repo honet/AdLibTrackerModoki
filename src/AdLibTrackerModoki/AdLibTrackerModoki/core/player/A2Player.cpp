@@ -2602,6 +2602,14 @@ void A2Player::apply_song_flags()
     current_tremolo_depth = tremolo_depth;
     current_vibrato_depth = vibrato_depth;
 
+    select_chan_tables();
+
+    init_buffers();
+    std::fill(std::begin(channel_flag), std::end(channel_flag), true);
+}
+
+void A2Player::select_chan_tables()
+{
     if (!percussion_mode) {
         std::memcpy(_chan_n, _chmm_n, sizeof(_chan_n));
         std::memcpy(_chan_m, _chmm_m, sizeof(_chan_m));
@@ -2611,9 +2619,6 @@ void A2Player::apply_song_flags()
         std::memcpy(_chan_m, _chpm_m, sizeof(_chan_m));
         std::memcpy(_chan_c, _chpm_c, sizeof(_chan_c));
     }
-
-    init_buffers();
-    std::fill(std::begin(channel_flag), std::end(channel_flag), true);
 }
 
 void A2Player::setSong(std::shared_ptr<Song> song)

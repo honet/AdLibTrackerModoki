@@ -217,6 +217,8 @@ public:
     void init_player();
     void reset_player();
     void apply_song_flags();
+    // percussion_mode に合わせて _chan_n / _chan_m / _chan_c を _chmm_* か _chpm_* にする
+    void select_chan_tables();
 
     IOplDevice& opl_;
     std::shared_ptr<Song> song_;
