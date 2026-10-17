@@ -1,81 +1,83 @@
 # AdLibTrackerModoki
 
-OPL3 (YMF262) 用のトラッカー [Adlib Tracker II](http://www.adlibtracker.net/) (AT2) を、
-Pascal から C++ へ移植した Windows 用のクローンです。
+[日本語](README.ja.md)
 
-実用性を求めたものではないお遊びプロジェクトであり、
-ほぼ100% AIエージェント(Claude code Opus5/5.5) によるコーディングです。
+A Windows clone of [Adlib Tracker II](http://www.adlibtracker.net/) (AT2), a tracker for the OPL3 (YMF262),
+ported from Pascal to C++.
 
-本家の画面と操作をなるべくそのまま再現しつつ、描画・音声出力を Windows のネイティブ API
-(Direct2D / DirectSound) に置き換えています。
+This is a just-for-fun project, not aimed at practical use,
+and almost 100% of the code was written by an AI agent (Claude Code Opus 5/5.5).
 
-## 特徴
+It reproduces the original's screens and controls as faithfully as possible, while replacing
+rendering and audio output with native Windows APIs (Direct2D / DirectSound).
 
-- 本家と同じテキスト画面・キー操作 (パターン・オーダー・楽器・マクロの編集、ヘルプなど)
-- 曲ファイルの読み込み
-  - AT2 形式: A2M / A2T / A2P
-  - 他のトラッカー: HSC / RAD / S3M / FMK / DFM / MTK / CFF / AMD / XMS / SAT / SA2
-- 曲ファイルの保存: A2M / A2T / A2P (本家とバイト単位で同じ内容)
-- 楽器・楽器バンクの読み書き: A2I / A2F / A2B / A2W、他形式 (BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI) の取り込み
-- 選べる音源
-  - AT2 互換エミュレータ (本家 SDL 版の opl3emu を移植。本家と同じ出音)
+## Features
+
+- The same text-mode screens and key controls as the original (pattern, order, instrument and macro editing, help, etc.)
+- Song file loading
+  - AT2 formats: A2M / A2T / A2P
+  - Other trackers: HSC / RAD / S3M / FMK / DFM / MTK / CFF / AMD / XMS / SAT / SA2
+- Song file saving: A2M / A2T / A2P (byte-for-byte identical to the original's output)
+- Instrument and instrument bank loading/saving: A2I / A2F / A2B / A2W, plus import from other formats (BNK / CIF / FIB / FIN / IBK / INS / SBI / SGI)
+- Selectable sound sources
+  - AT2-compatible emulator (a port of opl3emu from the original SDL version; sounds the same as the original)
   - Nuked OPL3 1.8
   - ymfm (YMF262)
-  - OPL3 実機 (c86ctl 経由)
+  - Real OPL3 hardware (via c86ctl)
 
-### 本家との違い
+### Differences from the original
 
-- メニューバーを追加しています。
-- ファイルを開く・保存するときは Windows のコモンダイアログを使います。
-- 画面モード (90x40 / 120x50 / 180x60) と音源の切り替えはメニューで行い、設定は
-  実行ファイルと同じフォルダの `AdLibTrackerModoki.ini` に保存されます。
-- WAV の録音には対応していません。
+- A menu bar has been added.
+- Opening and saving files uses the standard Windows common dialogs.
+- Screen mode (90x40 / 120x50 / 180x60) and sound source are switched from the menu, and the settings are
+  saved to `AdLibTrackerModoki.ini` in the same folder as the executable.
+- WAV recording is not supported.
 
-## 動作環境
+## Requirements
 
 - Windows 10 / 11
-- Direct3D 11 に対応したグラフィックス環境
-- OPL3 実機で演奏する場合は c86ctl (`c86ctl.dll`) と対応するハードウェア
+- A graphics environment that supports Direct3D 11
+- To play on real OPL3 hardware: c86ctl (`c86ctl.dll`) and compatible hardware
 
-## ビルド
+## Building
 
-1. Visual Studio 2026 (C++ によるデスクトップ開発、プラットフォームツールセット v145) をインストールします。
-2. `src/AdLibTrackerModoki/AdLibTrackerModoki.slnx` を開きます。
-3. 構成 (Debug / Release)・プラットフォーム (x64 など) を選んでビルドします。
+1. Install Visual Studio 2026 (Desktop development with C++, platform toolset v145).
+2. Open `src/AdLibTrackerModoki/AdLibTrackerModoki.slnx`.
+3. Select a configuration (Debug / Release) and platform (x64, etc.) and build.
 
-外部ライブラリはすべて `src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/` に同梱しているため、
-追加のインストールは必要ありません。
+All external libraries are bundled in `src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/`,
+so no additional installation is required.
 
-## フォルダ構成
+## Folder structure
 
 ```
-src/AdLibTrackerModoki/        ソリューションと本体のソースコード
+src/AdLibTrackerModoki/        Solution and main source code
   AdLibTrackerModoki/
-    core/                      曲データ・再生エンジン・OPL3 エミュレータ (OS に依存しない部分)
-    platform/                  描画・音声出力・キー入力・実機ドライバ (Windows 依存の部分)
-    ui/                        本家の画面・ダイアログの移植
-    app/                       設定・音源の切り替え
-    third_party/               同梱している外部ライブラリ
-  tools/                       ソースコード生成用のスクリプト
-at2-help.md / at2-help.ja.md   本家ヘルプの Markdown 版と日本語訳
-original-bugs.md               移植中に見つけた本家の不具合と、クローン版での扱い
-plan.md                        開発計画・進捗
+    core/                      Song data, playback engine, OPL3 emulators (OS-independent parts)
+    platform/                  Rendering, audio output, key input, hardware drivers (Windows-dependent parts)
+    ui/                        Ports of the original's screens and dialogs
+    app/                       Settings, sound source switching
+    third_party/               Bundled external libraries
+  tools/                       Scripts for generating source code
+at2-help.md / at2-help.ja.md   Markdown version of the original help and its Japanese translation
+original-bugs.md               Bugs in the original found during porting, and how the clone handles them
+plan.md                        Development plan and progress
 ```
 
-## ライセンス
+## License
 
-本ソフトウェアは、本家 Adlib Tracker II と同じく
-[GNU General Public License バージョン 3](LICENSE) (またはそれ以降のバージョン) の下で配布します。
+Like the original Adlib Tracker II, this software is distributed under the
+[GNU General Public License version 3](LICENSE) (or any later version).
 
-本ソフトウェアは Adlib Tracker II (subz3ro/Altair) のソースコードをもとにした派生物です。
-画面フォント・ヘルプの文章なども本家に由来します。
+This software is a derivative work based on the source code of Adlib Tracker II (subz3ro/Altair).
+The screen font, help text, etc. also come from the original.
 
-### 同梱している外部ライブラリ
+### Bundled external libraries
 
-| ライブラリ | 著作者 | ライセンス |
+| Library | Author | License |
 |---|---|---|
-| [Nuked OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 | Nuke.YKT | LGPL 2.1 以降 ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/nukedopl3/LICENSE)) |
+| [Nuked OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 | Nuke.YKT | LGPL 2.1 or later ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/nukedopl3/LICENSE)) |
 | [ymfm](https://github.com/aaronsgiles/ymfm) | Aaron Giles | BSD 3-Clause ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/ymfm/LICENSE)) |
-| c86ctl (ヘッダのみ) | honet | BSD |
+| c86ctl (headers only) | honet | BSD |
 
-AT2 互換エミュレータは、本家 SDL 版の opl3emu.pas (Nuked OPL3 1.6 をもとにしたもの) の移植です。
+The AT2-compatible emulator is a port of opl3emu.pas (based on Nuked OPL3 1.6) from the original SDL version.
