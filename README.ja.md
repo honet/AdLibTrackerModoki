@@ -84,6 +84,6 @@ plan.md                        開発計画・進捗
 |---|---|---|
 | [Nuked OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 | Nuke.YKT | LGPL 2.1 以降 ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/nukedopl3/LICENSE)) |
 | [ymfm](https://github.com/aaronsgiles/ymfm) | Aaron Giles | BSD 3-Clause ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/ymfm/LICENSE)) |
-| c86ctl (ヘッダのみ) | honet | BSD |
+| [c86ctl](https://github.com/honet/c86ctl) (ヘッダのみ) | Kiichiro KOTAJIMA(me) | BSD 3-Clause  |
 
 AT2 互換エミュレータは、本家 SDL 版の opl3emu.pas (Nuked OPL3 1.6 をもとにしたもの) の移植です。

@@ -85,6 +85,6 @@ The screen font, help text, etc. also come from the original.
 |---|---|---|
 | [Nuked OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 | Nuke.YKT | LGPL 2.1 or later ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/nukedopl3/LICENSE)) |
 | [ymfm](https://github.com/aaronsgiles/ymfm) | Aaron Giles | BSD 3-Clause ([LICENSE](src/AdLibTrackerModoki/AdLibTrackerModoki/third_party/ymfm/LICENSE)) |
-| c86ctl (headers only) | honet | BSD |
+| [c86ctl](https://github.com/honet/c86ctl) (headers only) | Kiichiro KOTAJIMA(me) | BSD 3-Clause  |
 
 The AT2-compatible emulator is a port of opl3emu.pas (based on Nuked OPL3 1.6) from the original SDL version.
