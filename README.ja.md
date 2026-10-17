@@ -33,6 +33,12 @@ Pascal から C++ へ移植した Windows 用のクローンです。
   実行ファイルと同じフォルダの `AdLibTrackerModoki.ini` に保存されます。
 - WAV の録音には対応していません。
 
+## スクリーンショット
+
+![Screenshot1](screenshot-images/screenshots1.jpg)
+
+![Screenshot2](screenshot-images/screenshots2.jpg)
+
 ## 動作環境
 
 - Windows 10 / 11

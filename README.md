@@ -33,6 +33,13 @@ rendering and audio output with native Windows APIs (Direct2D / DirectSound).
   saved to `AdLibTrackerModoki.ini` in the same folder as the executable.
 - WAV recording is not supported.
 
+
+## Screenshots
+
+![Screenshot1](screenshot-images/screenshots1.jpg)
+
+![Screenshot2](screenshot-images/screenshots2.jpg)
+
 ## Requirements
 
 - Windows 10 / 11
