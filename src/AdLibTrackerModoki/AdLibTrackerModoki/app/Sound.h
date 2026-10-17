@@ -50,6 +50,11 @@ void sound_stop();
 bool sound_set_emulator(EmulatorType type, std::wstring& error);
 EmulatorType sound_emulator();
 
+// AT2 互換以外のエミュレータで、同時のキーオフ/キーオンのキーオンを 1 サンプル遅らせて再発音させるか (既定 true)
+// 再生中でもすぐに反映する。AT2 互換エミュレータと実機には効かない。
+void sound_set_keyon_delay(bool enabled);
+bool sound_keyon_delay();
+
 PlayerStatus sound_status();
 
 class A2Player;

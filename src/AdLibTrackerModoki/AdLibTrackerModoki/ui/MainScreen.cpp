@@ -2335,6 +2335,7 @@ uint16_t process_events()
         case IDM_EMU_AT2: change_emulator(EmulatorType::At2); break;
         case IDM_EMU_NUKED: change_emulator(EmulatorType::Nuked); break;
         case IDM_EMU_YMFM: change_emulator(EmulatorType::Ymfm); break;
+        case IDM_EMU_KEYON_DELAY: sound_set_keyon_delay(!sound_keyon_delay()); break;
         case IDM_EMU_HARDWARE: change_emulator(EmulatorType::Hardware); break;
         default: break;
         }

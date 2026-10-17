@@ -189,6 +189,9 @@
     <ClInclude Include="core\opl\Opl3EmulatorYmfm.h">
       <Filter>core\opl</Filter>
     </ClInclude>
+    <ClInclude Include="core\opl\KeyOnDelay.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
     <ClInclude Include="third_party\ymfm\ymfm.h">
       <Filter>third_party\ymfm</Filter>
     </ClInclude>
@@ -330,6 +333,9 @@
       <Filter>third_party\nukedopl3</Filter>
     </ClCompile>
     <ClCompile Include="core\opl\Opl3EmulatorYmfm.cpp">
+      <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="core\opl\KeyOnDelay.cpp">
       <Filter>core\opl</Filter>
     </ClCompile>
     <ClCompile Include="third_party\ymfm\ymfm_adpcm.cpp">

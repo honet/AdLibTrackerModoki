@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 
+#include "../core/opl/KeyOnDelay.h"
 #include "../core/opl/Opl3Emulator.h"
 #include "../core/opl/Opl3EmulatorAt2.h"
 #include "../core/opl/Opl3EmulatorYmfm.h"
@@ -21,6 +22,8 @@ namespace
     std::unique_ptr<Opl3Emulator> g_emulatorNuked;
     std::unique_ptr<Opl3EmulatorYmfm> g_emulatorYmfm;
     std::unique_ptr<Opl3Hardware> g_hardware;
+    std::unique_ptr<KeyOnDelay> g_keyOnDelay;
+    bool g_keyOnDelayEnabled = true;
     IOplDevice* g_oplDevice = nullptr;
     IAudioSource* g_oplSource = nullptr;
     std::unique_ptr<A2Player> g_player;
@@ -50,6 +53,14 @@ namespace
             g_oplDevice = g_emulatorAt2.get();
             g_oplSource = g_emulatorAt2.get();
             break;
+        }
+
+        // AT2 互換以外は、同時のキーオフ/キーオンで再発音するようキーオンを遅らせる
+        if (g_emulatorType != EmulatorType::At2) {
+            g_keyOnDelay = std::make_unique<KeyOnDelay>(*g_oplDevice, *g_oplSource);
+            g_keyOnDelay->setEnabled(g_keyOnDelayEnabled);
+            g_oplDevice = g_keyOnDelay.get();
+            g_oplSource = g_keyOnDelay.get();
         }
 
         g_player = std::make_unique<A2Player>(*g_oplDevice);
@@ -115,6 +126,7 @@ void sound_done()
     g_player.reset();
     g_oplDevice = nullptr;
     g_oplSource = nullptr;
+    g_keyOnDelay.reset();
     g_emulatorAt2.reset();
     g_emulatorNuked.reset();
     g_emulatorYmfm.reset();
@@ -201,6 +213,17 @@ bool sound_set_emulator(EmulatorType type, std::wstring& error)
 EmulatorType sound_emulator()
 {
     return g_emulatorType;
+}
+
+void sound_set_keyon_delay(bool enabled)
+{
+    g_keyOnDelayEnabled = enabled;
+    if (g_keyOnDelay) g_keyOnDelay->setEnabled(enabled);
+}
+
+bool sound_keyon_delay()
+{
+    return g_keyOnDelayEnabled;
 }
 
 A2Player* sound_player()

@@ -192,6 +192,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     mii.fState = (mii.fState & ~MFS_CHECKED) | (id == emu ? MFS_CHECKED : MFS_UNCHECKED);
                     SetMenuItemInfoW(hMenu, id, FALSE, &mii);
                 }
+                const bool delayable = emu == IDM_EMU_NUKED || emu == IDM_EMU_YMFM;
+                EnableMenuItem(hMenu, IDM_EMU_KEYON_DELAY, MF_BYCOMMAND | (delayable ? MF_ENABLED : MF_GRAYED));
+                CheckMenuItem(hMenu, IDM_EMU_KEYON_DELAY, MF_BYCOMMAND | (sound_keyon_delay() ? MF_CHECKED : MF_UNCHECKED));
             }
         }
         break;
