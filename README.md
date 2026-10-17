@@ -3,6 +3,9 @@
 OPL3 (YMF262) 用のトラッカー [Adlib Tracker II](http://www.adlibtracker.net/) (AT2) を、
 Pascal から C++ へ移植した Windows 用のクローンです。
 
+実用性を求めたものではないお遊びプロジェクトであり、
+ほぼ100% AIエージェント(Claude code Opus5/5.5) によるコーディングです。
+
 本家の画面と操作をなるべくそのまま再現しつつ、描画・音声出力を Windows のネイティブ API
 (Direct2D / DirectSound) に置き換えています。
 
