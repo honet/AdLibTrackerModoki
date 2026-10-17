@@ -30,7 +30,7 @@ public:
     void reset() override;
     void writeReg(uint16_t reg, uint8_t value) override;
     void flush() override;
-    const wchar_t* name() const override { return L"OPL3 Hardware (stub)"; }
+    const wchar_t* name() const override { return L"OPL3 Hardware (c86ctl)"; }
 
     // デバッグ用: シャドウレジスタと書き込み・送出の件数
     uint8_t shadowReg(uint16_t reg) const { return shadow_[reg & 0x1ff]; }
