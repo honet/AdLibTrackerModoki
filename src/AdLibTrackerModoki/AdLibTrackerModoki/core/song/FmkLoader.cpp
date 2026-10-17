@@ -447,12 +447,12 @@ bool LoadFmk(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -460,7 +460,7 @@ bool LoadFmk(const std::wstring& path, Song& song, const Song::Defaults& default
     FmkHeader header{};
     if (reader.read(&header, sizeof(header)) != sizeof(header) || std::memcmp(header.id, "FMK!", 4) != 0) return corrupted();
     if (header.bytef4 != 0xf4 || !(header.ftype == 1 || header.ftype == 2)) {
-        error = L"未対応の形式です";
+        error = L"Unsupported format";
         return false;
     }
 

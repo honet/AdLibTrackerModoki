@@ -159,12 +159,12 @@ bool LoadSat(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -173,7 +173,7 @@ bool LoadSat(const std::wstring& path, Song& song, const Song::Defaults& default
     std::memcpy(&header, file.data(), sizeof(header));
     if (std::memcmp(header.ident, "SAdT", 4) != 0) return corrupted();
     if (!(header.vernm == 1 || header.vernm == 5 || header.vernm == 6)) {
-        error = L"未対応の形式バージョンです";
+        error = L"Unsupported format version";
         return false;
     }
 
@@ -249,12 +249,12 @@ bool LoadSa2(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -263,7 +263,7 @@ bool LoadSa2(const std::wstring& path, Song& song, const Song::Defaults& default
     std::memcpy(&header, file.data(), sizeof(header));
     if (std::memcmp(header.ident, "SAdT", 4) != 0) return corrupted();
     if (!(header.vernm == 8 || header.vernm == 9)) {
-        error = L"未対応の形式バージョンです";
+        error = L"Unsupported format version";
         return false;
     }
 

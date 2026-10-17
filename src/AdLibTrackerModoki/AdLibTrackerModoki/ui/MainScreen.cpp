@@ -1957,26 +1957,26 @@ std::wstring choose_save_path(const wchar_t* ext)
     std::wstring filter;
     const wchar_t* title;
     if (std::wcscmp(ext, L"a2m") == 0) {
-        filter = L"AdLib Tracker II モジュール (*.a2m)";
-        title = L"A2M 形式で保存";
+        filter = L"AdLib Tracker II module (*.a2m)";
+        title = L"Save as A2M";
     } else if (std::wcscmp(ext, L"a2t") == 0) {
-        filter = L"AdLib Tracker II タイニーモジュール (*.a2t)";
-        title = L"A2T 形式で保存";
+        filter = L"AdLib Tracker II tiny module (*.a2t)";
+        title = L"Save as A2T";
     } else if (std::wcscmp(ext, L"a2i") == 0) {
-        filter = L"AdLib Tracker II 楽器 (*.a2i)";
-        title = L"楽器を A2I 形式で保存";
+        filter = L"AdLib Tracker II instrument (*.a2i)";
+        title = L"Save instrument as A2I";
     } else if (std::wcscmp(ext, L"a2f") == 0) {
-        filter = L"AdLib Tracker II FM マクロ付き楽器 (*.a2f)";
-        title = L"楽器を A2F 形式で保存";
+        filter = L"AdLib Tracker II instrument with FM macro (*.a2f)";
+        title = L"Save instrument as A2F";
     } else if (std::wcscmp(ext, L"a2b") == 0) {
-        filter = L"AdLib Tracker II 楽器バンク (*.a2b)";
-        title = L"楽器バンクを A2B 形式で保存";
+        filter = L"AdLib Tracker II instrument bank (*.a2b)";
+        title = L"Save instrument bank as A2B";
     } else if (std::wcscmp(ext, L"a2w") == 0) {
-        filter = L"AdLib Tracker II マクロ付き楽器バンク (*.a2w)";
-        title = L"楽器バンクを A2W 形式で保存";
+        filter = L"AdLib Tracker II instrument bank with macros (*.a2w)";
+        title = L"Save instrument bank as A2W";
     } else {
-        filter = L"AdLib Tracker II パターン (*.a2p)";
-        title = L"パターンを A2P 形式で保存";
+        filter = L"AdLib Tracker II pattern (*.a2p)";
+        title = L"Save pattern as A2P";
     }
     filter += L'\0';
     filter += L"*.";
@@ -5343,7 +5343,7 @@ void PATTERN_LIST(uint8_t page)
         if (key == kF3 || key == kShF3 || key == kCtrlL) {
             // Shift+F3 (前回のファイルをそのまま読み込む) も、本クローン版ではファイルを選ばせる
             pattern2use = B(pattern_list__page - 1);
-            FILE_open(L"AdLib Tracker II パターン (*.a2p)\0*.a2p\0");
+            FILE_open(L"AdLib Tracker II pattern (*.a2p)\0*.a2p\0");
             pattern2use = BYTE_NULL;
             continue;
         }

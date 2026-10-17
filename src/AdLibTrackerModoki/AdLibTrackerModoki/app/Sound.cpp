@@ -137,7 +137,7 @@ void sound_done()
 bool sound_open_song(const std::wstring& path, uint8_t pattern, bool to_marked, std::wstring& error)
 {
     if (!g_player) {
-        error = L"サウンドが初期化されていません";
+        error = L"Sound is not initialized";
         return false;
     }
 
@@ -162,7 +162,7 @@ bool sound_open_song(const std::wstring& path, uint8_t pattern, bool to_marked, 
     }
 
     default:
-        error = L"対応していない形式です";
+        error = L"Unsupported file type";
         return false;
     }
 }

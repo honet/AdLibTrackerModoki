@@ -51,7 +51,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     if (!sys_init(hWnd))
     {
-        MessageBoxW(hWnd, L"画面の初期化に失敗しました。", szTitle, MB_OK | MB_ICONERROR);
+        MessageBoxW(hWnd, L"Failed to initialize the display.", szTitle, MB_OK | MB_ICONERROR);
         DestroyWindow(hWnd);
         return FALSE;
     }
@@ -71,13 +71,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             // 実機が使えなければ AT2 互換エミュレータで起動する (設定は実機のまま残す)
             std::wstring error;
             const bool ok = sound_set_emulator(EmulatorType::At2, error);
-            MessageBoxW(hWnd, ok ? L"OPL3 実機が使えないため、AT2 互換エミュレータで起動します。"
-                                 : L"サウンドの初期化に失敗しました。",
+            MessageBoxW(hWnd, ok ? L"OPL3 hardware is not available. Starting with the AT2 compatible emulator."
+                                 : L"Failed to initialize sound.",
                         szTitle, MB_OK | MB_ICONWARNING);
         }
         else
         {
-            MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
+            MessageBoxW(hWnd, L"Failed to initialize sound.", szTitle, MB_OK | MB_ICONWARNING);
         }
     }
 

@@ -101,7 +101,7 @@ bool LoadSongModule(const std::wstring& path, Song& song, const Song::Defaults& 
 {
     const SongLoader load = find_loader(lower_ext(path));
     if (!load) {
-        error = L"対応していない形式です";
+        error = L"Unsupported file type";
         return false;
     }
     if (!load(path, song, defaults, error)) return false;
@@ -122,7 +122,7 @@ bool LoadPatternModule(const std::wstring& path, Song& song, uint8_t pattern, bo
 
 const wchar_t* ModuleFileFilter()
 {
-    return L"すべての対応形式\0*.a2m;*.a2t;*.a2p;*.amd;*.cff;*.dfm;*.fmk;*.hsc;*.mtk;*.rad;*.s3m;*.sat;*.sa2;*.xms\0"
+    return L"All supported formats\0*.a2m;*.a2t;*.a2p;*.amd;*.cff;*.dfm;*.fmk;*.hsc;*.mtk;*.rad;*.s3m;*.sat;*.sa2;*.xms\0"
            L"AdLib Tracker II (*.a2m;*.a2t;*.a2p)\0*.a2m;*.a2t;*.a2p\0"
            L"Amusic / XMS-Tracker (*.amd;*.xms)\0*.amd;*.xms\0"
            L"Boomtracker (*.cff)\0*.cff\0"
@@ -133,5 +133,5 @@ const wchar_t* ModuleFileFilter()
            L"Reality AdLib Tracker (*.rad)\0*.rad\0"
            L"Scream Tracker 3 (*.s3m)\0*.s3m\0"
            L"Surprise! AdLib Tracker (*.sat;*.sa2)\0*.sat;*.sa2\0"
-           L"すべてのファイル (*.*)\0*.*\0";
+           L"All files (*.*)\0*.*\0";
 }

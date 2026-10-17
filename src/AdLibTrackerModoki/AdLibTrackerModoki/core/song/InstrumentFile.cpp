@@ -192,11 +192,11 @@ namespace
                   std::wstring& error)
     {
         const auto corrupted = [&error] {
-            error = L"ファイルが壊れています";
+            error = L"The file is corrupted";
             return false;
         };
         const auto crc_failed = [&error] {
-            error = L"CRC が一致しません";
+            error = L"CRC mismatch";
             return false;
         };
 
@@ -209,7 +209,7 @@ namespace
             return corrupted();
         }
         if (header.ffver < 1 || header.ffver > FFVER_A2I) {
-            error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+            error = L"Unsupported format version (" + std::to_wstring(header.ffver) + L")";
             return false;
         }
 
@@ -298,7 +298,7 @@ namespace
                   std::wstring& error)
     {
         const auto corrupted = [&error] {
-            error = L"ファイルが壊れています";
+            error = L"The file is corrupted";
             return false;
         };
 
@@ -311,7 +311,7 @@ namespace
             return corrupted();
         }
         if (header.ffver < 1 || header.ffver > FFVER_A2F) {
-            error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+            error = L"Unsupported format version (" + std::to_wstring(header.ffver) + L")";
             return false;
         }
 
@@ -320,7 +320,7 @@ namespace
         crc = Update32(&header.b0len, 1, crc);
         crc = Update32(buf2.data(), header.b0len, crc);
         if (crc != header.crc32) {
-            error = L"CRC が一致しません";
+            error = L"CRC mismatch";
             return false;
         }
 
@@ -448,7 +448,7 @@ namespace
         CifData buffer;
         const size_t temp = read_head(file, &buffer, sizeof(buffer));
         if (!(temp >= MIN_CIF_SIZE && std::memcmp(buffer.ident, id, 20) == 0)) {
-            error = L"ファイルが壊れています";
+            error = L"The file is corrupted";
             return false;
         }
 
@@ -466,7 +466,7 @@ namespace
     {
         FinData buffer;
         if (read_head(file, &buffer, sizeof(buffer)) != sizeof(buffer)) {
-            error = L"ファイルが壊れています";
+            error = L"The file is corrupted";
             return false;
         }
 
@@ -491,7 +491,7 @@ namespace
     {
         InsData buffer;
         if (file.size() > sizeof(buffer)) {
-            error = L"未対応の形式です";
+            error = L"Unsupported format";
             return false;
         }
         const size_t temp = read_head(file, &buffer, file.size());
@@ -519,7 +519,7 @@ namespace
     {
         SbiData buffer;
         if (!(read_head(file, &buffer, sizeof(buffer)) == sizeof(buffer) && std::memcmp(buffer.ident, "SBI\x1A", 4) == 0)) {
-            error = L"ファイルが壊れています";
+            error = L"The file is corrupted";
             return false;
         }
 
@@ -556,7 +556,7 @@ namespace
     {
         uint8_t buffer[SGI_DATA_SIZE];
         if (read_head(file, buffer, sizeof(buffer)) != sizeof(buffer)) {
-            error = L"ファイルが壊れています";
+            error = L"The file is corrupted";
             return false;
         }
 
@@ -710,13 +710,13 @@ bool LoadInstrumentFile(const std::wstring& path, FixedSongData& songdata, uint8
     else if (ext == L"sbi") load = load_sbi;
     else if (ext == L"sgi") load = load_sgi;
     if (load == nullptr) {
-        error = L"対応していない形式です";
+        error = L"Unsupported file type";
         return false;
     }
 
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
@@ -780,17 +780,17 @@ SaveResult SaveA2f(const std::wstring& path, const FixedSongData& songdata, uint
 bool LoadA2bBank(const std::wstring& path, FixedSongData& temp_songdata, std::wstring& error)
 {
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
     const auto crc_failed = [&error] {
-        error = L"CRC が一致しません";
+        error = L"CRC mismatch";
         return false;
     };
 
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
@@ -803,7 +803,7 @@ bool LoadA2bBank(const std::wstring& path, FixedSongData& temp_songdata, std::ws
         return corrupted();
     }
     if (header.ffver < 1 || header.ffver > FFVER_A2B) {
-        error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+        error = L"Unsupported format version (" + std::to_wstring(header.ffver) + L")";
         return false;
     }
 
@@ -868,17 +868,17 @@ bool LoadA2bBank(const std::wstring& path, FixedSongData& temp_songdata, std::ws
 bool LoadA2wBank(const std::wstring& path, FixedSongData& temp_songdata, std::wstring& error)
 {
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
     const auto crc_failed = [&error] {
-        error = L"CRC が一致しません";
+        error = L"CRC mismatch";
         return false;
     };
 
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
@@ -892,7 +892,7 @@ bool LoadA2wBank(const std::wstring& path, FixedSongData& temp_songdata, std::ws
         return corrupted();
     }
     if (header.ffver < 1 || header.ffver > FFVER_A2W) {
-        error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+        error = L"Unsupported format version (" + std::to_wstring(header.ffver) + L")";
         return false;
     }
 

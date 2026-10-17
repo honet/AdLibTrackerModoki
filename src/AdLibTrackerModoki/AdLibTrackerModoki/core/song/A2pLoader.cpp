@@ -70,16 +70,16 @@ bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, bool to_mark
 
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
     const auto crc_failed = [&error] {
-        error = L"CRC が一致しません";
+        error = L"CRC mismatch";
         return false;
     };
 
@@ -92,7 +92,7 @@ bool LoadA2p(const std::wstring& path, Song& song, uint8_t pattern, bool to_mark
         return corrupted();
     }
     if (header.ffver < 1 || header.ffver > FFVER_A2P) {
-        error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+        error = L"Unsupported format version (" + std::to_wstring(header.ffver) + L")";
         return false;
     }
 

@@ -469,12 +469,12 @@ bool LoadS3m(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -484,7 +484,7 @@ bool LoadS3m(const std::wstring& path, Song& song, const Song::Defaults& default
         return corrupted();
     }
     if (header.byte1a != 0x1a || header.ftype != 0x10) {
-        error = L"未対応の形式です";
+        error = L"Unsupported format";
         return false;
     }
 

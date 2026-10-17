@@ -104,12 +104,12 @@ bool LoadDfm(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 

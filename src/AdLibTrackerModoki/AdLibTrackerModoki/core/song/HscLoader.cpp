@@ -190,7 +190,7 @@ bool LoadHsc(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
@@ -198,7 +198,7 @@ bool LoadHsc(const std::wstring& path, Song& song, const Song::Defaults& default
     const size_t temp = std::min(file.size(), HSC_DATA_SIZE);
     std::memcpy(hscbuf.buf.data(), file.data(), temp);
     if (temp < HSC_INSTR_SIZE + HSC_ORDER_SIZE) {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     }
 

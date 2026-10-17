@@ -225,22 +225,22 @@ bool LoadAmd(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     Header header{};
     if (file.size() < sizeof(header)) {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     }
     std::memcpy(&header, file.data(), sizeof(header));
     if (std::memcmp(header.ident, id_amd, 9) != 0 && std::memcmp(header.ident, id_xms, 9) != 0) {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     }
     if (header.versn != 0x10 && header.versn != 0x11) {
-        error = L"未対応の形式バージョンです";
+        error = L"Unsupported format version";
         return false;
     }
 

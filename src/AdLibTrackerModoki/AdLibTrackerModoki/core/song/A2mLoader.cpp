@@ -43,12 +43,12 @@ bool LoadA2m(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -59,7 +59,7 @@ bool LoadA2m(const std::wstring& path, Song& song, const Song::Defaults& default
         return corrupted();
     }
     if (header.ffver < 1 || header.ffver > FFVER_A2M) {
-        error = L"未対応の形式バージョンです (" + std::to_wstring(header.ffver) + L")";
+        error = L"Unsupported format version (" + std::to_wstring(header.ffver) + L")";
         return false;
     }
 
@@ -111,7 +111,7 @@ bool LoadA2m(const std::wstring& path, Song& song, const Song::Defaults& default
             crc = Update32(&xlen[temp2], 2, crc);
         }
         if (crc != header2.crc32) {
-            error = L"CRC が一致しません";
+            error = L"CRC mismatch";
             return false;
         }
 
@@ -177,7 +177,7 @@ bool LoadA2m(const std::wstring& path, Song& song, const Song::Defaults& default
             crc = Update32(&xlen[temp2], 2, crc);
         }
         if (crc != header2.crc32) {
-            error = L"CRC が一致しません";
+            error = L"CRC mismatch";
             return false;
         }
 
@@ -229,7 +229,7 @@ bool LoadA2m(const std::wstring& path, Song& song, const Song::Defaults& default
             crc = Update32(&header.b1len[temp2], 2, crc);
         }
         if (crc != header.crc32) {
-            error = L"CRC が一致しません";
+            error = L"CRC mismatch";
             return false;
         }
 

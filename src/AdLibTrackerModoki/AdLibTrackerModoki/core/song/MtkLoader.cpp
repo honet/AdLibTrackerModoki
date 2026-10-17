@@ -39,12 +39,12 @@ bool LoadMtk(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -57,7 +57,7 @@ bool LoadMtk(const std::wstring& path, Song& song, const Song::Defaults& default
     const size_t temp = std::min(file.size() - sizeof(header), GENERIC_IO_BUFFER_SIZE);
 
     if (Update16(buf1, temp, 0) != header.crc_16bit) {
-        error = L"CRC が一致しません";
+        error = L"CRC mismatch";
         return false;
     }
 

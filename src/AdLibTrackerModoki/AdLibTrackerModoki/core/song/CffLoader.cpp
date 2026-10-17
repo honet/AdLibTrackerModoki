@@ -349,12 +349,12 @@ bool LoadCff(const std::wstring& path, Song& song, const Song::Defaults& default
 {
     std::vector<uint8_t> file;
     if (!readFile(path, file)) {
-        error = L"ファイルを開けません";
+        error = L"Cannot open the file";
         return false;
     }
 
     const auto corrupted = [&error] {
-        error = L"ファイルが壊れています";
+        error = L"The file is corrupted";
         return false;
     };
 
@@ -375,7 +375,7 @@ bool LoadCff(const std::wstring& path, Song& song, const Song::Defaults& default
 
         const int32_t offs = SensitiveScan(hash_buffer.data(), 0, static_cast<int32_t>(out_size), ascii_blab);
         if (offs != _PRE_ASCII_BLAB_SIZE) {
-            error = L"データの展開に失敗しました";
+            error = L"Failed to decompress data";
             return false;
         }
         hash_buffer.resize(std::max(hash_buffer.size(), sizeof(Headr2)), 0);
