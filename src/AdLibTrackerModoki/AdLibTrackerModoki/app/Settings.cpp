@@ -52,6 +52,9 @@ void settings_load()
     const UINT mode = GetPrivateProfileIntW(L"Display", L"ScreenMode", s.screen_mode, path.c_str());
     if (mode <= 2) s.screen_mode = static_cast<uint8_t>(mode);
 
+    const UINT scale = GetPrivateProfileIntW(L"Display", L"WindowScale", s.window_scale, path.c_str());
+    if (scale >= 1 && scale <= 4) s.window_scale = static_cast<int>(scale);
+
     wchar_t name[32] = {};
     GetPrivateProfileStringW(L"Sound", L"Emulator", L"", name, ARRAYSIZE(name), path.c_str());
     for (const auto& e : kEmulatorNames) {
@@ -74,6 +77,7 @@ void settings_save()
     }
 
     WritePrivateProfileStringW(L"Display", L"ScreenMode", std::to_wstring(s.screen_mode).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Display", L"WindowScale", std::to_wstring(s.window_scale).c_str(), path.c_str());
     WritePrivateProfileStringW(L"Sound", L"Emulator", emulator, path.c_str());
     WritePrivateProfileStringW(L"Sound", L"KeyOnDelay", s.keyon_delay ? L"1" : L"0", path.c_str());
 }

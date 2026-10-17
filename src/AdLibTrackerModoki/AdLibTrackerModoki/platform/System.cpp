@@ -106,36 +106,79 @@ namespace
         }
     }
 
-    // クライアント領域が画面サイズの整数倍になるようウィンドウの大きさを決める
-    void fit_window_to_screen()
-    {
-        HMONITOR monitor = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO mi = { sizeof(mi) };
-        GetMonitorInfoW(monitor, &mi);
-        const LONG work_w = mi.rcWork.right - mi.rcWork.left;
-        const LONG work_h = mi.rcWork.bottom - mi.rcWork.top;
+    // ウィンドウの拡大率 (クライアント領域 = 画面解像度 × 拡大率)
+    constexpr int MAX_WINDOW_SCALE = 4;
+    int g_window_scale = 1;         // ユーザーが選んだ拡大率 (ini に保存する)
+    int g_current_scale = 1;        // 実際の拡大率 (モニタに入りきらなければ g_window_scale より小さい)
+    bool g_window_ready = false;    // 画面モードが決まり、ウィンドウの大きさを合わせられる
+    bool g_in_size_move = false;    // ユーザーがウィンドウを移動・大きさ変更中
+    bool g_resized_in_drag = false; // 今回のドラッグで大きさを変えた
+    bool g_adjusting = false;       // fit 処理中の WM_SIZE を無視する
 
+    // 拡大率 scale のときのウィンドウの大きさ (メニューは 1 行とみなす)
+    SIZE window_size_for_scale(int scale, UINT dpi)
+    {
         const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(g_hwnd, GWL_STYLE));
         const DWORD ex_style = static_cast<DWORD>(GetWindowLongPtrW(g_hwnd, GWL_EXSTYLE));
-        const UINT dpi = GetDpiForWindow(g_hwnd);
-
-        int scale = 1;
-        for (int s = 4; s >= 1; --s) {
-            RECT rc = { 0, 0, SCREEN_RES_x * s, SCREEN_RES_y * s };
-            AdjustWindowRectExForDpi(&rc, style, GetMenu(g_hwnd) != nullptr, ex_style, dpi);
-            if (rc.right - rc.left <= work_w && rc.bottom - rc.top <= work_h) {
-                scale = s;
-                break;
-            }
-        }
-
         RECT rc = { 0, 0, SCREEN_RES_x * scale, SCREEN_RES_y * scale };
         AdjustWindowRectExForDpi(&rc, style, GetMenu(g_hwnd) != nullptr, ex_style, dpi);
-        const int w = rc.right - rc.left;
-        const int h = rc.bottom - rc.top;
-        const int x = mi.rcWork.left + std::max<LONG>(0, (work_w - w) / 2);
-        const int y = mi.rcWork.top + std::max<LONG>(0, (work_h - h) / 2);
-        SetWindowPos(g_hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        return { rc.right - rc.left, rc.bottom - rc.top };
+    }
+
+    // 作業領域に入りきる最大の拡大率
+    int max_fit_scale(const RECT& work, UINT dpi)
+    {
+        for (int s = MAX_WINDOW_SCALE; s > 1; --s) {
+            const SIZE size = window_size_for_scale(s, dpi);
+            if (size.cx <= work.right - work.left && size.cy <= work.bottom - work.top) return s;
+        }
+        return 1;
+    }
+
+    RECT monitor_work_area(HMONITOR monitor)
+    {
+        MONITORINFO mi = { sizeof(mi) };
+        GetMonitorInfoW(monitor, &mi);
+        return mi.rcWork;
+    }
+
+    // ウィンドウを (x, y) に置き、クライアント領域を画面解像度 × scale にする
+    void set_client_size(int x, int y, int scale, UINT dpi)
+    {
+        g_adjusting = true;
+        g_current_scale = scale;
+        const SIZE size = window_size_for_scale(scale, dpi);
+        SetWindowPos(g_hwnd, nullptr, x, y, size.cx, size.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+
+        // メニューバーが折り返して 2 行以上になると、その分クライアント領域が低くなるので足す
+        RECT client;
+        GetClientRect(g_hwnd, &client);
+        const LONG lack = SCREEN_RES_y * scale - (client.bottom - client.top);
+        if (lack != 0) {
+            SetWindowPos(g_hwnd, nullptr, 0, 0, size.cx, size.cy + lack, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+        }
+        g_adjusting = false;
+    }
+
+    // 作業領域の中央に、選ばれた拡大率 (入りきらなければ下げる) でウィンドウを置く
+    void fit_window_to_screen()
+    {
+        const RECT work = monitor_work_area(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST));
+        const UINT dpi = GetDpiForWindow(g_hwnd);
+        const int scale = std::min(g_window_scale, max_fit_scale(work, dpi));
+        const SIZE size = window_size_for_scale(scale, dpi);
+        const int x = work.left + std::max<LONG>(0, (work.right - work.left - size.cx) / 2);
+        const int y = work.top + std::max<LONG>(0, (work.bottom - work.top - size.cy) / 2);
+        set_client_size(x, y, scale, dpi);
+    }
+
+    // クライアント領域の大きさから一番近い拡大率を選ぶ
+    int nearest_scale(LONG client_w, LONG client_h, const RECT& work, UINT dpi)
+    {
+        const double ratio = (static_cast<double>(client_w) / SCREEN_RES_x +
+                              static_cast<double>(client_h) / SCREEN_RES_y) / 2;
+        const int scale = static_cast<int>(ratio + 0.5);
+        return std::clamp(scale, 1, max_fit_scale(work, dpi));
     }
 }
 
@@ -161,7 +204,19 @@ void sys_set_screen_mode(uint8_t mode)
     TxtScrIO_Init(mode);
     std::memset(screen_mirror, 0, sizeof(screen_mirror));
     g_force_redraw = true;
+    g_window_ready = true;
     fit_window_to_screen();
+}
+
+void sys_set_window_scale(int scale)
+{
+    g_window_scale = std::clamp(scale, 1, MAX_WINDOW_SCALE);
+    if (g_window_ready) fit_window_to_screen();
+}
+
+int sys_window_scale()
+{
+    return g_window_scale;
 }
 
 void vid_SetRGBPalette(const Rgb* palette)
@@ -202,9 +257,104 @@ void sys_pump_messages()
     }
 }
 
-void sys_on_resize()
+void sys_on_resize(WPARAM type)
 {
     g_renderer.resize();
+
+    // スナップなど WM_SIZING を通らない大きさの変更も、一番近い拡大率に合わせ直す
+    if (!g_window_ready || g_in_size_move || g_adjusting || type == SIZE_MINIMIZED) return;
+    RECT client;
+    GetClientRect(g_hwnd, &client);
+    const LONG w = client.right - client.left;
+    const LONG h = client.bottom - client.top;
+    if (w == SCREEN_RES_x * g_current_scale && h == SCREEN_RES_y * g_current_scale) return;
+
+    const UINT dpi = GetDpiForWindow(g_hwnd);
+    const RECT work = monitor_work_area(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST));
+    RECT window;
+    GetWindowRect(g_hwnd, &window);
+    g_window_scale = nearest_scale(w, h, work, dpi);
+    set_client_size(window.left, window.top, g_window_scale, dpi);
+}
+
+void sys_on_sizing(WPARAM edge, RECT* rc)
+{
+    if (!g_window_ready) return;
+
+    // 今のメニューの行数を含めた枠の大きさ
+    RECT window, client;
+    GetWindowRect(g_hwnd, &window);
+    GetClientRect(g_hwnd, &client);
+    const LONG frame_w = (window.right - window.left) - (client.right - client.left);
+    const LONG frame_h = (window.bottom - window.top) - (client.bottom - client.top);
+
+    LONG client_w = rc->right - rc->left - frame_w;
+    LONG client_h = rc->bottom - rc->top - frame_h;
+    // 辺のドラッグではその向きの大きさだけで拡大率を決める
+    if (edge == WMSZ_LEFT || edge == WMSZ_RIGHT) client_h = client_w * SCREEN_RES_y / SCREEN_RES_x;
+    if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM) client_w = client_h * SCREEN_RES_x / SCREEN_RES_y;
+
+    const UINT dpi = GetDpiForWindow(g_hwnd);
+    const RECT work = monitor_work_area(MonitorFromRect(rc, MONITOR_DEFAULTTONEAREST));
+    const int scale = nearest_scale(client_w, client_h, work, dpi);
+    const LONG w = SCREEN_RES_x * scale + frame_w;
+    const LONG h = SCREEN_RES_y * scale + frame_h;
+
+    // ドラッグしていない側の辺を固定する
+    if (edge == WMSZ_LEFT || edge == WMSZ_TOPLEFT || edge == WMSZ_BOTTOMLEFT) {
+        rc->left = rc->right - w;
+    } else {
+        rc->right = rc->left + w;
+    }
+    if (edge == WMSZ_TOP || edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) {
+        rc->top = rc->bottom - h;
+    } else {
+        rc->bottom = rc->top + h;
+    }
+    // 選ばれた拡大率はドラッグを終えたときに確定する
+    g_current_scale = scale;
+    g_resized_in_drag = true;
+}
+
+void sys_on_get_min_max_info(MINMAXINFO* info)
+{
+    if (!g_window_ready) return;
+    const UINT dpi = GetDpiForWindow(g_hwnd);
+    const SIZE size = window_size_for_scale(1, dpi);
+    info->ptMinTrackSize.x = size.cx;
+    info->ptMinTrackSize.y = size.cy;
+}
+
+void sys_on_enter_size_move()
+{
+    g_in_size_move = true;
+    g_resized_in_drag = false;
+}
+
+void sys_on_exit_size_move()
+{
+    g_in_size_move = false;
+    if (!g_window_ready) return;
+    // 移動だけのときは、モニタに入りきらず下げている拡大率を選ばれた値にしない
+    if (g_resized_in_drag) g_window_scale = g_current_scale;
+    // ドラッグ中にメニューの折り返しが変わってずれた分を直す
+    RECT window;
+    GetWindowRect(g_hwnd, &window);
+    set_client_size(window.left, window.top, g_current_scale, GetDpiForWindow(g_hwnd));
+}
+
+void sys_on_dpi_changed(UINT dpi, const RECT* suggested)
+{
+    if (!g_window_ready) {
+        SetWindowPos(g_hwnd, nullptr, suggested->left, suggested->top,
+                     suggested->right - suggested->left, suggested->bottom - suggested->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
+    // 枠の太さが変わってもクライアント領域の大きさ (ドット数) は保つ
+    const RECT work = monitor_work_area(MonitorFromRect(suggested, MONITOR_DEFAULTTONEAREST));
+    const int scale = std::min(g_window_scale, max_fit_scale(work, dpi));
+    set_client_size(suggested->left, suggested->top, scale, dpi);
 }
 
 void sys_on_paint()

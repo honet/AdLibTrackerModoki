@@ -55,9 +55,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         DestroyWindow(hWnd);
         return FALSE;
     }
-    // 前回終了時の画面モード・音源を設定ファイルから復元する
+    // 前回終了時の画面モード・拡大率・音源を設定ファイルから復元する
     settings_load();
     const AppSettings& settings = app_settings();
+    sys_set_window_scale(settings.window_scale);
     sys_set_screen_mode(settings.screen_mode);
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
@@ -148,7 +149,8 @@ HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
    UNREFERENCED_PARAMETER(nCmdShow);
    hInst = hInstance; // グローバル変数にインスタンス ハンドルを格納する
 
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+   // クライアント領域は画面解像度の整数倍に保つので、モニタの大きさになる最大化は使わない
+   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX,
       CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
    if (hWnd)
@@ -156,6 +158,16 @@ HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
       DragAcceptFiles(hWnd, TRUE);
    }
    return hWnd;
+}
+
+// ウィンドウの拡大率が変わっていれば設定ファイルに保存する
+// (枠のドラッグ中の拡大率はドラッグを終えたときに確定するので、ドラッグ中には保存されない)
+static void save_window_scale()
+{
+    AppSettings& settings = app_settings();
+    if (settings.window_scale == sys_window_scale()) return;
+    settings.window_scale = sys_window_scale();
+    settings_save();
 }
 
 //
@@ -230,7 +242,24 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         keyboard_init();
         break;
     case WM_SIZE:
-        sys_on_resize();
+        sys_on_resize(wParam);
+        save_window_scale();
+        break;
+    case WM_SIZING:
+        sys_on_sizing(wParam, reinterpret_cast<RECT*>(lParam));
+        return TRUE;
+    case WM_GETMINMAXINFO:
+        sys_on_get_min_max_info(reinterpret_cast<MINMAXINFO*>(lParam));
+        break;
+    case WM_ENTERSIZEMOVE:
+        sys_on_enter_size_move();
+        break;
+    case WM_EXITSIZEMOVE:
+        sys_on_exit_size_move();
+        save_window_scale();
+        break;
+    case WM_DPICHANGED:
+        sys_on_dpi_changed(HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
         break;
     case WM_ERASEBKGND:
         return 1;

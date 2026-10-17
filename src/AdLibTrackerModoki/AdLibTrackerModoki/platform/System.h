@@ -28,8 +28,18 @@ void draw_screen();
 // 溜まっているウィンドウメッセージを処理する
 void sys_pump_messages();
 
+// ウィンドウの拡大率 (1〜4)。クライアント領域は画面解像度 × 拡大率に保つ
+// (モニタに入りきらないときは一時的に下げるが、選ばれた値は変えない)
+void sys_set_window_scale(int scale);
+int sys_window_scale();
+
 // ウィンドウプロシージャから呼ぶ
-void sys_on_resize();
+void sys_on_resize(WPARAM type);
+void sys_on_sizing(WPARAM edge, RECT* rc);
+void sys_on_get_min_max_info(MINMAXINFO* info);
+void sys_on_enter_size_move();
+void sys_on_exit_size_move();
+void sys_on_dpi_changed(UINT dpi, const RECT* suggested);
 void sys_on_paint();
 void sys_add_dropped_file(const std::wstring& path);
 
