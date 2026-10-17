@@ -1,4 +1,4 @@
-#include "Opl3Hardware.h"
+#include "Opl3HardwareC86ctl.h"
 
 #include <cstdio>
 
@@ -8,7 +8,7 @@
 
 // c86ctl.dll は LoadLibrary で読み込む (インポートライブラリにはリンクしない)。
 // 関数の型はヘッダの宣言から取る。
-struct Opl3Hardware::Api
+struct Opl3HardwareC86ctl::Api
 {
     HMODULE module = nullptr;
     decltype(&c86ctl::c86ctl_initialize) initialize = nullptr;
@@ -28,16 +28,16 @@ namespace
     }
 }
 
-Opl3Hardware::Opl3Hardware() : api_(std::make_unique<Api>())
+Opl3HardwareC86ctl::Opl3HardwareC86ctl() : api_(std::make_unique<Api>())
 {
 }
 
-Opl3Hardware::~Opl3Hardware()
+Opl3HardwareC86ctl::~Opl3HardwareC86ctl()
 {
     close();
 }
 
-bool Opl3Hardware::open()
+bool Opl3HardwareC86ctl::open()
 {
     std::lock_guard lock(mutex_);
     if (open_) return true;
@@ -48,7 +48,7 @@ bool Opl3Hardware::open()
         wchar_t msg[128];
         swprintf_s(msg, L"Failed to load c86ctl.dll (error %lu).", GetLastError());
         lastError_ = msg;
-        OutputDebugStringW(L"Opl3Hardware: LoadLibrary(c86ctl.dll) failed\n");
+        OutputDebugStringW(L"Opl3HardwareC86ctl: LoadLibrary(c86ctl.dll) failed\n");
         return false;
     }
 
@@ -62,7 +62,7 @@ bool Opl3Hardware::open()
         wchar_t msg[128];
         swprintf_s(msg, L"Function %hs was not found in c86ctl.dll.", missing);
         lastError_ = msg;
-        OutputDebugStringW(L"Opl3Hardware: GetProcAddress failed\n");
+        OutputDebugStringW(L"Opl3HardwareC86ctl: GetProcAddress failed\n");
         unloadLibrary();
         return false;
     }
@@ -70,7 +70,7 @@ bool Opl3Hardware::open()
     int ret = api_->initialize();
 	if (ret != C86CTL_ERR_NONE) {
 		wchar_t msg[128];
-		swprintf_s(msg, L"Opl3Hardware: c86ctl_initialize() failed: %d\n", ret);
+		swprintf_s(msg, L"Opl3HardwareC86ctl: c86ctl_initialize() failed: %d\n", ret);
 		OutputDebugStringW(msg);
 		swprintf_s(msg, L"c86ctl_initialize() failed (error %d).", ret);
 		lastError_ = msg;
@@ -82,7 +82,7 @@ bool Opl3Hardware::open()
 	if (numChips <= 0) {
         api_->deinitialize();
         unloadLibrary();
-        OutputDebugStringW(L"Opl3Hardware: no device found\n");
+        OutputDebugStringW(L"Opl3HardwareC86ctl: no device found\n");
 		lastError_ = L"No OPL3 hardware was found.";
 		return false;
 	}
@@ -93,14 +93,14 @@ bool Opl3Hardware::open()
     return true;
 }
 
-void Opl3Hardware::close()
+void Opl3HardwareC86ctl::close()
 {
     std::lock_guard lock(mutex_);
     if (!open_) return;
 
     // TODO: 発音を止めてから切断する
     wchar_t msg[128];
-    swprintf_s(msg, L"Opl3Hardware: writes=%llu flushes=%llu\n",
+    swprintf_s(msg, L"Opl3HardwareC86ctl: writes=%llu flushes=%llu\n",
                static_cast<unsigned long long>(writeCount_), static_cast<unsigned long long>(flushCount_));
     OutputDebugStringW(msg);
 
@@ -110,13 +110,13 @@ void Opl3Hardware::close()
     unloadLibrary();
 }
 
-void Opl3Hardware::unloadLibrary()
+void Opl3HardwareC86ctl::unloadLibrary()
 {
     if (api_->module) FreeLibrary(api_->module);
     *api_ = Api{};
 }
 
-void Opl3Hardware::reset()
+void Opl3HardwareC86ctl::reset()
 {
     std::lock_guard lock(mutex_);
 
@@ -125,7 +125,7 @@ void Opl3Hardware::reset()
     shadow_.fill(0);
 }
 
-void Opl3Hardware::writeReg(uint16_t reg, uint8_t value)
+void Opl3HardwareC86ctl::writeReg(uint16_t reg, uint8_t value)
 {
     std::lock_guard lock(mutex_);
     if (!open_) return;
@@ -136,7 +136,7 @@ void Opl3Hardware::writeReg(uint16_t reg, uint8_t value)
     ++writeCount_;
 }
 
-void Opl3Hardware::flush()
+void Opl3HardwareC86ctl::flush()
 {
     std::lock_guard lock(mutex_);
     if (!open_) return;

@@ -193,7 +193,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClInclude Include="core\player\SampleClockDriver.h" />
     <ClInclude Include="core\player\IPlayerDriver.h" />
     <ClInclude Include="platform\player\TimerDriver.h" />
-    <ClInclude Include="platform\hardware\Opl3Hardware.h" />
+    <ClInclude Include="platform\hardware\Opl3HardwareC86ctl.h" />
     <ClInclude Include="core\audio\IAudioOutput.h" />
     <ClInclude Include="core\audio\IAudioSource.h" />
     <ClInclude Include="core\opl\IOplDevice.h" />
@@ -250,7 +250,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
     <ClCompile Include="core\player\A2Player.cpp" />
     <ClCompile Include="core\player\SampleClockDriver.cpp" />
     <ClCompile Include="platform\player\TimerDriver.cpp" />
-    <ClCompile Include="platform\hardware\Opl3Hardware.cpp" />
+    <ClCompile Include="platform\hardware\Opl3HardwareC86ctl.cpp" />
     <ClCompile Include="core\opl\Opl3Emulator.cpp" />
     <ClCompile Include="core\opl\Opl3EmulatorAt2.cpp" />
     <ClCompile Include="platform\audio\DirectSoundOutput.cpp" />

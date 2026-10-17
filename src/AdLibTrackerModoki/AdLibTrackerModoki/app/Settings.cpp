@@ -18,7 +18,7 @@ namespace
         { EmulatorType::At2, L"AT2" },
         { EmulatorType::Nuked, L"Nuked" },
         { EmulatorType::Ymfm, L"ymfm" },
-        { EmulatorType::Hardware, L"Hardware" },
+        { EmulatorType::C86ctl, L"c86ctl" },
     };
 
     std::wstring ini_path()

@@ -11,7 +11,7 @@
 #include "../core/player/SampleClockDriver.h"
 #include "../core/song/ModuleLoader.h"
 #include "../platform/audio/DirectSoundOutput.h"
-#include "../platform/hardware/Opl3Hardware.h"
+#include "../platform/hardware/Opl3HardwareC86ctl.h"
 #include "../platform/player/TimerDriver.h"
 
 namespace
@@ -21,7 +21,7 @@ namespace
     std::unique_ptr<Opl3EmulatorAt2> g_emulatorAt2;
     std::unique_ptr<Opl3Emulator> g_emulatorNuked;
     std::unique_ptr<Opl3EmulatorYmfm> g_emulatorYmfm;
-    std::unique_ptr<Opl3Hardware> g_hardware;
+    std::unique_ptr<Opl3HardwareC86ctl> g_hardware;
     std::unique_ptr<KeyOnDelay> g_keyOnDelay;
     bool g_keyOnDelayEnabled = true;
     IOplDevice* g_oplDevice = nullptr;
@@ -78,7 +78,7 @@ namespace
     // 実機: タイマーで駆動する (PC 側の音声出力は使わない)
     bool start_hardware()
     {
-        g_hardware = std::make_unique<Opl3Hardware>();
+        g_hardware = std::make_unique<Opl3HardwareC86ctl>();
         g_oplDevice = g_hardware.get();
 
         g_player = std::make_unique<A2Player>(*g_oplDevice);
@@ -97,7 +97,7 @@ namespace
     bool start_sound()
     {
         g_error.clear();
-        return g_emulatorType == EmulatorType::Hardware ? start_hardware() : start_emulator();
+        return g_emulatorType == EmulatorType::C86ctl ? start_hardware() : start_emulator();
     }
 }
 
@@ -198,7 +198,7 @@ bool sound_set_emulator(EmulatorType type, std::wstring& error)
     error = g_error;
 
     // 実機が使えなければ元のエミュレータに戻し、演奏を続けられるようにする
-    if (!ok && type == EmulatorType::Hardware && previous != EmulatorType::Hardware) {
+    if (!ok && type == EmulatorType::C86ctl && previous != EmulatorType::C86ctl) {
         sound_done();
         g_emulatorType = previous;
         start_sound();

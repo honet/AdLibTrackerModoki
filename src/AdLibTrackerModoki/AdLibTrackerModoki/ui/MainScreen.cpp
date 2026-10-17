@@ -2311,7 +2311,7 @@ void change_emulator(EmulatorType type)
     app_settings().emulator = sound_emulator();
     settings_save();
     refresh_windows();
-    if (!ok && type == EmulatorType::Hardware) {
+    if (!ok && type == EmulatorType::C86ctl) {
         std::wstring msg = L"OPL3 hardware is not available. Playback continues with the emulator.";
         if (!error.empty()) msg += L"\n\n" + error;
         MessageBoxW(g_hwnd, msg.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
@@ -2346,7 +2346,7 @@ uint16_t process_events()
             app_settings().keyon_delay = sound_keyon_delay();
             settings_save();
             break;
-        case IDM_EMU_HARDWARE: change_emulator(EmulatorType::Hardware); break;
+        case IDM_EMU_HARDWARE: change_emulator(EmulatorType::C86ctl); break;
         default: break;
         }
     }

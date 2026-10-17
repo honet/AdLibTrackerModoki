@@ -65,7 +65,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     sound_set_keyon_delay(settings.keyon_delay);
     if (!sound_init(hWnd, settings.emulator))
     {
-        if (settings.emulator == EmulatorType::Hardware)
+        if (settings.emulator == EmulatorType::C86ctl)
         {
             // 実機が使えなければ AT2 互換エミュレータで起動する (設定は実機のまま残す)
             std::wstring error;
@@ -198,7 +198,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 case EmulatorType::At2: emu = IDM_EMU_AT2; break;
                 case EmulatorType::Nuked: emu = IDM_EMU_NUKED; break;
                 case EmulatorType::Ymfm: emu = IDM_EMU_YMFM; break;
-                case EmulatorType::Hardware: emu = IDM_EMU_HARDWARE; break;
+                case EmulatorType::C86ctl: emu = IDM_EMU_HARDWARE; break;
                 }
                 // ID が連番でないため CheckMenuRadioItem の範囲指定は使えない。1 項目ずつ付け外しする
                 for (UINT id : { IDM_EMU_AT2, IDM_EMU_NUKED, IDM_EMU_YMFM, IDM_EMU_HARDWARE }) {

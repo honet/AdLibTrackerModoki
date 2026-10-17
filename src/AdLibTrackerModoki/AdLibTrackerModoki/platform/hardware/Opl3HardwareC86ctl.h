@@ -15,11 +15,11 @@
 //
 // c86ctl.dll は open() で動的に読み込み、close() でデバイスを解放してから FreeLibrary する。
 // DLL が無い環境でもアプリは起動でき、実機を選んだときだけ読み込む。
-class Opl3Hardware : public IOplDevice
+class Opl3HardwareC86ctl : public IOplDevice
 {
 public:
-    Opl3Hardware();
-    ~Opl3Hardware() override;
+    Opl3HardwareC86ctl();
+    ~Opl3HardwareC86ctl() override;
 
     // デバイスに接続する (失敗したら false。理由は lastError() で得られる)
     bool open();
