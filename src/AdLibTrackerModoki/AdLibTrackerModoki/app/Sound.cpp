@@ -101,9 +101,10 @@ namespace
     }
 }
 
-bool sound_init(HWND hwnd)
+bool sound_init(HWND hwnd, EmulatorType type)
 {
     g_hwnd = hwnd;
+    g_emulatorType = type;
     return start_sound();
 }
 

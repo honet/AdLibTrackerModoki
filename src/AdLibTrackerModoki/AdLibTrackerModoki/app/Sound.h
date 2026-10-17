@@ -36,7 +36,8 @@ struct PlayerStatus
     bool output = false;     // 音声出力が使えるか
 };
 
-bool sound_init(HWND hwnd);
+// type の音源で初期化する。実機が使えなかったときもプレイヤーは作られる (false を返す)
+bool sound_init(HWND hwnd, EmulatorType type = EmulatorType::At2);
 void sound_done();
 
 // 曲を読み込む (本家と同じく再生は停止状態になる)。

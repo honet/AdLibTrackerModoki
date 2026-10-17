@@ -20,6 +20,7 @@
 #include "StringIO.h"
 #include "TxtScrIO.h"
 #include "../Resource.h"
+#include "../app/Settings.h"
 #include "../app/Sound.h"
 #include "../core/player/A2Player.h"
 #include "../core/song/Depack.h"
@@ -2283,6 +2284,8 @@ void change_screen_mode(uint8_t mode)
 {
     if (mode == program_screen_mode) return;
     sys_set_screen_mode(mode);
+    app_settings().screen_mode = program_screen_mode;
+    settings_save();
     init_screen_layout();
     PROGRAM_SCREEN_init();
 
@@ -2304,6 +2307,9 @@ void change_emulator(EmulatorType type)
     // プレイヤーが作り直されるため、曲は引き継がれるが演奏は停止する
     std::wstring error;
     const bool ok = sound_set_emulator(type, error);
+    // 実機に切り替えられなかったときは、実際に使っている音源を保存する
+    app_settings().emulator = sound_emulator();
+    settings_save();
     refresh_windows();
     if (!ok && type == EmulatorType::Hardware) {
         std::wstring msg = L"OPL3 hardware is not available. Playback continues with the emulator.";
@@ -2335,7 +2341,11 @@ uint16_t process_events()
         case IDM_EMU_AT2: change_emulator(EmulatorType::At2); break;
         case IDM_EMU_NUKED: change_emulator(EmulatorType::Nuked); break;
         case IDM_EMU_YMFM: change_emulator(EmulatorType::Ymfm); break;
-        case IDM_EMU_KEYON_DELAY: sound_set_keyon_delay(!sound_keyon_delay()); break;
+        case IDM_EMU_KEYON_DELAY:
+            sound_set_keyon_delay(!sound_keyon_delay());
+            app_settings().keyon_delay = sound_keyon_delay();
+            settings_save();
+            break;
         case IDM_EMU_HARDWARE: change_emulator(EmulatorType::Hardware); break;
         default: break;
         }

@@ -154,6 +154,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AdLibTrackerModoki.h" />
+    <ClInclude Include="app\Settings.h" />
     <ClInclude Include="app\Sound.h" />
     <ClInclude Include="platform\System.h" />
     <ClInclude Include="platform\input\Keyboard.h" />
@@ -214,6 +215,7 @@ xcopy /Y /D "$(ProjectDir)third_party\c86ctl\bin\x64\c86ctl.pdb" "$(OutDir)"</Co
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AdLibTrackerModoki.cpp" />
+    <ClCompile Include="app\Settings.cpp" />
     <ClCompile Include="app\Sound.cpp" />
     <ClCompile Include="platform\System.cpp" />
     <ClCompile Include="platform\input\Keyboard.cpp" />

@@ -8,6 +8,7 @@
 
 #include <string>
 
+#include "app/Settings.h"
 #include "app/Sound.h"
 #include "platform/System.h"
 #include "platform/input/Keyboard.h"
@@ -54,13 +55,29 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         DestroyWindow(hWnd);
         return FALSE;
     }
-    sys_set_screen_mode(0);
+    // 前回終了時の画面モード・音源を設定ファイルから復元する
+    settings_load();
+    const AppSettings& settings = app_settings();
+    sys_set_screen_mode(settings.screen_mode);
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
 
-    if (!sound_init(hWnd))
+    sound_set_keyon_delay(settings.keyon_delay);
+    if (!sound_init(hWnd, settings.emulator))
     {
-        MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
+        if (settings.emulator == EmulatorType::Hardware)
+        {
+            // 実機が使えなければ AT2 互換エミュレータで起動する (設定は実機のまま残す)
+            std::wstring error;
+            const bool ok = sound_set_emulator(EmulatorType::At2, error);
+            MessageBoxW(hWnd, ok ? L"OPL3 実機が使えないため、AT2 互換エミュレータで起動します。"
+                                 : L"サウンドの初期化に失敗しました。",
+                        szTitle, MB_OK | MB_ICONWARNING);
+        }
+        else
+        {
+            MessageBoxW(hWnd, L"サウンドの初期化に失敗しました。", szTitle, MB_OK | MB_ICONWARNING);
+        }
     }
 
     // コマンドラインで渡された曲を開く
