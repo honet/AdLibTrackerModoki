@@ -61,6 +61,9 @@
     <Filter Include="ui">
       <UniqueIdentifier>{1df6a93f-fcc3-4f24-9824-3e91a143de03}</UniqueIdentifier>
     </Filter>
+    <Filter Include="third_party\c86ctl">
+      <UniqueIdentifier>{6f9395aa-c152-4604-90eb-05cfd68271b2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -180,9 +183,6 @@
     <ClInclude Include="platform\player\TimerDriver.h">
       <Filter>platform\player</Filter>
     </ClInclude>
-    <ClInclude Include="platform\hardware\Opl3Hardware.h">
-      <Filter>platform\hardware</Filter>
-    </ClInclude>
     <ClInclude Include="platform\audio\DirectSoundOutput.h">
       <Filter>platform\audio</Filter>
     </ClInclude>
@@ -212,6 +212,15 @@
     </ClInclude>
     <ClInclude Include="third_party\ymfm\ymfm_pcm.h">
       <Filter>third_party\ymfm</Filter>
+    </ClInclude>
+    <ClInclude Include="platform\hardware\Opl3HardwareC86ctl.h">
+      <Filter>platform\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\c86ctl\c86ctl.h">
+      <Filter>third_party\c86ctl</Filter>
+    </ClInclude>
+    <ClInclude Include="third_party\c86ctl\cbus_boardtype.h">
+      <Filter>third_party\c86ctl</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -329,9 +338,6 @@
     <ClCompile Include="platform\player\TimerDriver.cpp">
       <Filter>platform\player</Filter>
     </ClCompile>
-    <ClCompile Include="platform\hardware\Opl3Hardware.cpp">
-      <Filter>platform\hardware</Filter>
-    </ClCompile>
     <ClCompile Include="platform\audio\DirectSoundOutput.cpp">
       <Filter>platform\audio</Filter>
     </ClCompile>
@@ -353,6 +359,9 @@
     <ClCompile Include="third_party\ymfm\ymfm_pcm.cpp">
       <Filter>third_party\ymfm</Filter>
     </ClCompile>
+    <ClCompile Include="platform\hardware\Opl3HardwareC86ctl.cpp">
+      <Filter>platform\hardware</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="AdLibTrackerModoki.rc">
@@ -366,5 +375,28 @@
     <Image Include="AdLibTrackerModoki.ico">
       <Filter>リソース ファイル</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ui\InstEdit.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
+    <None Include="ui\MacroEdit.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
+    <None Include="ui\BankLoad.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
+    <None Include="ui\A2wLoad.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
+    <None Include="ui\BnkLoad.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
+    <None Include="ui\EditTools.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
+    <None Include="ui\Help.inl">
+      <Filter>ヘッダー ファイル</Filter>
+    </None>
   </ItemGroup>
 </Project>
