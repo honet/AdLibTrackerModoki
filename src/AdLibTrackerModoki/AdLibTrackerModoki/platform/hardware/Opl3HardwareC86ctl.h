@@ -41,6 +41,7 @@ private:
     struct Api;    // c86ctl.dll のモジュールハンドルと関数ポインタ
 
     void unloadLibrary();
+    int findChip(int type);
 
     std::mutex mutex_;
     std::unique_ptr<Api> api_;
@@ -49,4 +50,5 @@ private:
     std::array<uint8_t, 0x200> shadow_{};
     uint64_t writeCount_ = 0;
     uint64_t flushCount_ = 0;
+    uint32_t targetChipIdx = 0;
 };

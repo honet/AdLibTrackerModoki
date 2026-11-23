@@ -15,6 +15,7 @@ struct Opl3HardwareC86ctl::Api
     decltype(&c86ctl::c86ctl_deinitialize) deinitialize = nullptr;
     decltype(&c86ctl::c86ctl_reset) reset = nullptr;
     decltype(&c86ctl::c86ctl_get_num_chips) get_num_chips = nullptr;
+    decltype(&c86ctl::c86ctl_get_chip_type) get_chip_type = nullptr;
     decltype(&c86ctl::c86ctl_outex) outex = nullptr;
 };
 
@@ -37,6 +38,18 @@ Opl3HardwareC86ctl::~Opl3HardwareC86ctl()
     close();
 }
 
+
+int Opl3HardwareC86ctl::findChip(int type)
+{
+	int numChips = api_->get_num_chips();
+	for (int i = 0; i < numChips; ++i) {
+		if ((api_->get_chip_type(i) & 0xffff) == type) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 bool Opl3HardwareC86ctl::open()
 {
     std::lock_guard lock(mutex_);
@@ -57,6 +70,7 @@ bool Opl3HardwareC86ctl::open()
     else if (!load_proc(api_->module, "c86ctl_deinitialize", api_->deinitialize)) missing = "c86ctl_deinitialize";
     else if (!load_proc(api_->module, "c86ctl_reset", api_->reset)) missing = "c86ctl_reset";
     else if (!load_proc(api_->module, "c86ctl_get_num_chips", api_->get_num_chips)) missing = "c86ctl_get_num_chips";
+    else if (!load_proc(api_->module, "c86ctl_get_chip_type", api_->get_chip_type)) missing = "c86ctl_get_chip_type";
     else if (!load_proc(api_->module, "c86ctl_outex", api_->outex)) missing = "c86ctl_outex";
     if (missing) {
         wchar_t msg[128];
@@ -79,13 +93,29 @@ bool Opl3HardwareC86ctl::open()
 	}
 
 	int numChips = api_->get_num_chips();
-	if (numChips <= 0) {
+    if (numChips <= 0) {
         api_->deinitialize();
         unloadLibrary();
         OutputDebugStringW(L"Opl3HardwareC86ctl: no device found\n");
-		lastError_ = L"No OPL3 hardware was found.";
-		return false;
-	}
+        lastError_ = L"No OPL3 hardware was found.";
+        return false;
+    }
+
+    targetChipIdx = findChip(c86ctl::CHIP_OPL3);
+	if (targetChipIdx == -1) 
+		targetChipIdx = findChip(c86ctl::CHIP_OPLL);
+    if (targetChipIdx == -1) 
+        targetChipIdx = findChip(c86ctl::CHIP_YMF297);
+    if (targetChipIdx == -1) 
+        targetChipIdx = findChip(c86ctl::CHIP_YMF278B);
+    if (targetChipIdx == -1) {
+        // OPL系のchipが無ければ1個目のchipを無理やり利用する
+        int chipType = api_->get_chip_type(0);
+        wchar_t msg[128];
+        swprintf_s(msg, L"Opl3HardwareC86ctl: chip %d is not OPL3 (type=%d)\n", 0, chipType);
+        OutputDebugStringW(msg);
+        targetChipIdx = 0;
+    }
 
     open_ = true;
     writeCount_ = 0;
