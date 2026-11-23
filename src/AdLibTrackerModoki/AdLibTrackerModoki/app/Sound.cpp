@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 
+#include "../core/opl/HardwareKeyOnDelay.h"
 #include "../core/opl/KeyOnDelay.h"
 #include "../core/opl/Opl3Emulator.h"
 #include "../core/opl/Opl3EmulatorAt2.h"
@@ -23,6 +24,7 @@ namespace
     std::unique_ptr<Opl3EmulatorYmfm> g_emulatorYmfm;
     std::unique_ptr<Opl3HardwareC86ctl> g_hardware;
     std::unique_ptr<KeyOnDelay> g_keyOnDelay;
+    std::unique_ptr<HardwareKeyOnDelay> g_hardwareKeyOnDelay;
     bool g_keyOnDelayEnabled = true;
     IOplDevice* g_oplDevice = nullptr;
     IAudioSource* g_oplSource = nullptr;
@@ -79,7 +81,11 @@ namespace
     bool start_hardware()
     {
         g_hardware = std::make_unique<Opl3HardwareC86ctl>();
-        g_oplDevice = g_hardware.get();
+
+        // 同時のキーオフ/キーオンで再発音するよう、キーオフを送ってからキーオンを送る
+        g_hardwareKeyOnDelay = std::make_unique<HardwareKeyOnDelay>(*g_hardware);
+        g_hardwareKeyOnDelay->setEnabled(g_keyOnDelayEnabled);
+        g_oplDevice = g_hardwareKeyOnDelay.get();
 
         g_player = std::make_unique<A2Player>(*g_oplDevice);
         g_timerDriver = std::make_unique<TimerDriver>(*g_player, *g_oplDevice);
@@ -90,7 +96,7 @@ namespace
             g_error = g_hardware->lastError();
             return false;
         }
-        g_hardware->reset();
+        g_oplDevice->reset();
         return g_timerDriver->start();
     }
 
@@ -128,6 +134,7 @@ void sound_done()
     g_oplDevice = nullptr;
     g_oplSource = nullptr;
     g_keyOnDelay.reset();
+    g_hardwareKeyOnDelay.reset();
     g_emulatorAt2.reset();
     g_emulatorNuked.reset();
     g_emulatorYmfm.reset();
@@ -220,6 +227,7 @@ void sound_set_keyon_delay(bool enabled)
 {
     g_keyOnDelayEnabled = enabled;
     if (g_keyOnDelay) g_keyOnDelay->setEnabled(enabled);
+    if (g_hardwareKeyOnDelay) g_hardwareKeyOnDelay->setEnabled(enabled);
 }
 
 bool sound_keyon_delay()

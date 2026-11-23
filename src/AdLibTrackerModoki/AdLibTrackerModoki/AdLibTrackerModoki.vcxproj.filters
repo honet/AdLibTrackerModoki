@@ -195,6 +195,9 @@
     <ClInclude Include="core\opl\KeyOnDelay.h">
       <Filter>core\opl</Filter>
     </ClInclude>
+    <ClInclude Include="core\opl\HardwareKeyOnDelay.h">
+      <Filter>core\opl</Filter>
+    </ClInclude>
     <ClInclude Include="third_party\ymfm\ymfm.h">
       <Filter>third_party\ymfm</Filter>
     </ClInclude>
@@ -348,6 +351,9 @@
       <Filter>core\opl</Filter>
     </ClCompile>
     <ClCompile Include="core\opl\KeyOnDelay.cpp">
+      <Filter>core\opl</Filter>
+    </ClCompile>
+    <ClCompile Include="core\opl\HardwareKeyOnDelay.cpp">
       <Filter>core\opl</Filter>
     </ClCompile>
     <ClCompile Include="third_party\ymfm\ymfm_adpcm.cpp">

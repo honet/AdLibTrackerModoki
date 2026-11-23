@@ -51,8 +51,9 @@ void sound_stop();
 bool sound_set_emulator(EmulatorType type, std::wstring& error);
 EmulatorType sound_emulator();
 
-// AT2 互換以外のエミュレータで、同時のキーオフ/キーオンのキーオンを 1 サンプル遅らせて再発音させるか (既定 true)
-// 再生中でもすぐに反映する。AT2 互換エミュレータと実機には効かない。
+// 同時のキーオフ/キーオンのキーオンを遅らせて再発音させるか (既定 true)
+// Nuked / ymfm では 1 サンプル、実機ではキーオフを送出してから約 100us 遅らせる (HardwareKeyOnDelay)。
+// 再生中でもすぐに反映する。AT2 互換エミュレータには効かない。
 void sound_set_keyon_delay(bool enabled);
 bool sound_keyon_delay();
 
