@@ -10,8 +10,11 @@
 
 // 実機 OPL3 へのインターフェース
 //
-// writeReg() で書き込みを溜め、TimerDriver がタイマー周期ごとに呼ぶ flush() でまとめて送り出す。
-// UI スレッドからの書き込み (エディタの試聴等) も次の flush() で送られる。
+// writeReg() は c86ctl_outex() で c86ctl の送信バッファへ溜め、TimerDriver が tick ごとに
+// (A2Player::timerTick() の直後に) 呼ぶ flush() で c86ctl_flushex() を呼び、1 tick 分の書き込みをまとめて送り出す。
+// エミュレータが tick 境界のサンプル位置で書き込みを反映するのと同じく、実機でも tick 境界で反映させるため。
+// UI スレッドからの書き込み (エディタの試聴等) は次の flush() か c86ctl の自動送信 (約 1ms) で送られる。
+// c86ctl_flushex() が無い古い DLL では c86ctl の自動送信 (64byte 単位 / 約 1ms) に任せる。
 //
 // c86ctl.dll は open() で動的に読み込み、close() でデバイスを解放してから FreeLibrary する。
 // DLL が無い環境でもアプリは起動でき、実機を選んだときだけ読み込む。
@@ -50,5 +53,5 @@ private:
     std::array<uint8_t, 0x200> shadow_{};
     uint64_t writeCount_ = 0;
     uint64_t flushCount_ = 0;
-    uint32_t targetChipIdx = 0;
+    int targetChipIdx = 0;
 };

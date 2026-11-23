@@ -7,7 +7,7 @@
 // プレイヤーやエディタはこのインターフェース経由でのみレジスタを書き込む。
 // 実装例:
 //   - Opl3Emulator   : Nuked OPL3 によるソフトウェアエミュレーション (PCM は IAudioSource で取り出す)
-//   - Opl3HardwareC86ctl   : 実チップへ書き込む (現在はスタブ)
+//   - Opl3HardwareC86ctl   : c86ctl 経由で実チップへ書き込む (flush() で tick ごとに送出)
 //
 // レジスタアドレスは 0x000-0x0FF がバンク0、0x100-0x1FF がバンク1 (OPL3 拡張部)。
 class IOplDevice

@@ -17,6 +17,7 @@ struct Opl3HardwareC86ctl::Api
     decltype(&c86ctl::c86ctl_get_num_chips) get_num_chips = nullptr;
     decltype(&c86ctl::c86ctl_get_chip_type) get_chip_type = nullptr;
     decltype(&c86ctl::c86ctl_outex) outex = nullptr;
+    decltype(&c86ctl::c86ctl_flushex) flushex = nullptr;    // 古い DLL には無い (無ければ c86ctl の自動送信に任せる)
 };
 
 namespace
@@ -79,6 +80,9 @@ bool Opl3HardwareC86ctl::open()
         OutputDebugStringW(L"Opl3HardwareC86ctl: GetProcAddress failed\n");
         unloadLibrary();
         return false;
+    }
+    if (!load_proc(api_->module, "c86ctl_flushex", api_->flushex)) {
+        OutputDebugStringW(L"Opl3HardwareC86ctl: c86ctl_flushex not found (writes are sent by c86ctl's auto flush)\n");
     }
 
     int ret = api_->initialize();
@@ -160,7 +164,7 @@ void Opl3HardwareC86ctl::writeReg(uint16_t reg, uint8_t value)
     std::lock_guard lock(mutex_);
     if (!open_) return;
 
-    api_->outex(0, reg, value);
+    api_->outex(targetChipIdx, reg, value);
 
     shadow_[reg & 0x1ff] = value;
     ++writeCount_;
@@ -170,6 +174,7 @@ void Opl3HardwareC86ctl::flush()
 {
     std::lock_guard lock(mutex_);
     if (!open_) return;
-    // TODO: 送信バッファの内容をデバイスへ送り出す
+    // この tick で溜めた書き込みをまとめてデバイスへ送り出す
+    if (api_->flushex) api_->flushex(targetChipIdx);
     ++flushCount_;
 }

@@ -139,6 +139,28 @@ public:
 	virtual int __stdcall getChipType(enum ChipType* type) = 0;
 };
 
+// IRealChip4 {87FF1BF4-2913-4224-9141-B0ACD761B1C7}
+static const GUID IID_IRealChip4 =
+{ 0x87ff1bf4, 0x2913, 0x4224, { 0x91, 0x41, 0xb0, 0xac, 0xd7, 0x61, 0xb1, 0xc7 } };
+
+interface IRealChip4 : public IRealChip3
+{
+	//IRealChip3より継承
+	//public:
+	//	virtual int __stdcall reset(void) = 0;
+	//	virtual void __stdcall out(UINT addr, UCHAR data) = 0;
+	//	virtual UCHAR __stdcall in(UINT addr) = 0;
+	//	virtual int __stdcall getChipStatus(UINT addr, UCHAR *status) = 0;
+	//	virtual void __stdcall directOut(UINT addr, UCHAR data) = 0;
+	//	virtual int __stdcall getChipType(enum ChipType* type) = 0;
+public:
+	// 送信待ちのデータを即座にデバイスへ転送する。
+	// 遅延設定が0の場合、out()で書き込んだデータは64byte単位でまとめて転送され、
+	// 端数はflush()を呼ぶか、約1ms経過後に自動送信される。
+	// 遅延設定がされている場合は何もしない（遅延処理側で送信タイミングを管理するため）。
+	virtual int __stdcall flush(void) = 0;
+};
+
 
 // ---------------------------------------
 // DEPRECATED. use IGimic2 instead.
@@ -198,6 +220,8 @@ int WINAPI c86ctl_get_num_chips();
 int WINAPI c86ctl_get_chip_type(int chipidx);
 int WINAPI c86ctl_outex(UINT chipidx, UINT addr, UCHAR data);
 int WINAPI c86ctl_inex(UINT chipidx, UINT addr, UCHAR data);
+int WINAPI c86ctl_flush(void);
+int WINAPI c86ctl_flushex(UINT chipidx);
 
 
 void WINAPI c86ctl_out(UINT addr, UCHAR data);
