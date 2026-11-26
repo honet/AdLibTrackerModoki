@@ -9,6 +9,7 @@
 #include <string>
 
 #include "app/Jukebox.h"
+#include "app/PlaylistWindow.h"
 #include "app/Settings.h"
 #include "app/Sound.h"
 #include "platform/System.h"
@@ -63,6 +64,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     sys_set_screen_mode(settings.screen_mode);
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
+    playlist_window_init(hWnd);
 
     sound_set_keyon_delay(settings.keyon_delay);
     if (!sound_init(hWnd, settings.emulator))
@@ -97,6 +99,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     // メインループ (本家と同じく、キー入力待ちの中でメッセージ処理と描画を行う)
     at2::run_main_screen(hWnd);
 
+    playlist_window_done();
     sound_done();
     sys_done();
     if (IsWindow(hWnd))
@@ -231,6 +234,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 for (UINT id : { IDM_JUKEBOX_NEXT, IDM_JUKEBOX_PREV, IDM_JUKEBOX_STOP }) {
                     EnableMenuItem(hMenu, id, MF_BYCOMMAND | state);
                 }
+                CheckMenuItem(hMenu, IDM_JUKEBOX_PLAYLIST,
+                              MF_BYCOMMAND | (playlist_window_visible() ? MF_CHECKED : MF_UNCHECKED));
                 CheckMenuItem(hMenu, IDM_JUKEBOX_SHUFFLE,
                               MF_BYCOMMAND | (app_settings().jukebox_shuffle ? MF_CHECKED : MF_UNCHECKED));
             }

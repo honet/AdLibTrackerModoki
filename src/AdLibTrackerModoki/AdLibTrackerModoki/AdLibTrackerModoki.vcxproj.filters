@@ -81,6 +81,9 @@
     <ClInclude Include="app\Jukebox.h">
       <Filter>app</Filter>
     </ClInclude>
+    <ClInclude Include="app\PlaylistWindow.h">
+      <Filter>app</Filter>
+    </ClInclude>
     <ClInclude Include="app\Settings.h">
       <Filter>app</Filter>
     </ClInclude>
@@ -234,6 +237,9 @@
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="app\Jukebox.cpp">
+      <Filter>app</Filter>
+    </ClCompile>
+    <ClCompile Include="app\PlaylistWindow.cpp">
       <Filter>app</Filter>
     </ClCompile>
     <ClCompile Include="app\Settings.cpp">

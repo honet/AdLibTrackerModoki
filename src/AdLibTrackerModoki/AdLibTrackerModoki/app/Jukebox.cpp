@@ -26,6 +26,8 @@ namespace
     size_t g_index = 0;
     bool g_active = false;
     bool g_shuffle = false;
+    std::wstring g_folder;                // 曲リストを作ったフォルダ
+    uint32_t g_list_version = 0;          // 曲リストの並びが変わるたびに増やす
     const std::wstring g_empty;
 
     std::mt19937& rng()
@@ -79,10 +81,12 @@ bool jukebox_build(const std::wstring& folder, bool subfolders, bool shuffle)
     if (files.empty()) return false;
 
     g_sorted = std::move(files);
+    g_folder = folder;
     g_list = g_sorted;
     g_shuffle = shuffle;
     g_index = 0;
     if (g_shuffle) shuffle_from(0);
+    ++g_list_version;
     g_active = true;
     return true;
 }
@@ -124,6 +128,7 @@ const std::wstring& jukebox_step(int dir)
                 const std::wstring last = g_list[n - 1];
                 shuffle_from(0);
                 if (g_list[0] == last) std::swap(g_list[0], g_list[n - 1]);
+                ++g_list_version;
             }
         }
     } else {
@@ -132,10 +137,34 @@ const std::wstring& jukebox_step(int dir)
     return g_list[g_index];
 }
 
+bool jukebox_jump(size_t index)
+{
+    if (index >= g_list.size()) return false;
+    g_index = index;
+    g_active = true;
+    return true;
+}
+
+const std::vector<std::wstring>& jukebox_list()
+{
+    return g_list;
+}
+
+const std::wstring& jukebox_folder()
+{
+    return g_folder;
+}
+
+uint32_t jukebox_list_version()
+{
+    return g_list_version;
+}
+
 void jukebox_set_shuffle(bool shuffle)
 {
     g_shuffle = shuffle;
     if (g_list.empty()) return;
+    ++g_list_version;
     const std::wstring current = g_list[g_index];
     g_list = g_sorted;
     if (shuffle) {

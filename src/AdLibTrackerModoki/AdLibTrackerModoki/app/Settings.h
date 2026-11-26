@@ -24,6 +24,13 @@ struct AppSettings
     bool jukebox_subfolders = false;
     bool jukebox_fade = true;                    // 曲を切り替えるときにフェードアウトする
     std::wstring jukebox_folder;                 // 最後に選んだフォルダ
+
+    // プレイリスト表示ウィンドウ
+    bool playlist_visible = true;                // フォルダを開いたときに表示する
+    int playlist_x = 0;                          // 位置と大きさ (幅か高さが 0 なら既定の位置)
+    int playlist_y = 0;
+    int playlist_width = 0;
+    int playlist_height = 0;
 };
 
 // 起動時に ini から読み込んだ値 (メニューで切り替えるたびに更新して保存する)

@@ -21,6 +21,7 @@
 #include "TxtScrIO.h"
 #include "../Resource.h"
 #include "../app/Jukebox.h"
+#include "../app/PlaylistWindow.h"
 #include "../app/Settings.h"
 #include "../app/Sound.h"
 #include "../core/player/A2Player.h"
@@ -2349,6 +2350,7 @@ void jukebox_update_title()
                  L"] " + std::filesystem::path(jukebox_current()).filename().wstring();
     }
     SetWindowTextW(g_hwnd, title.c_str());
+    playlist_window_sync();
 }
 
 void jukebox_end()
@@ -2356,7 +2358,7 @@ void jukebox_end()
     jukebox_start_pending = false;
     if (!jukebox_active()) return;
     jukebox_stop();
-    jukebox_update_title();
+    jukebox_update_title();   // プレイリストの演奏中の印も消える
 }
 
 // ジュークボックスの曲を読み込んで演奏を始める。
@@ -2401,6 +2403,7 @@ void jukebox_open_folder()
         keyboard_init();
         return;
     }
+    if (s.playlist_visible) playlist_window_show(true, false);
     jukebox_play(0);
 }
 
@@ -2485,6 +2488,14 @@ uint16_t process_events()
             settings_save();
             jukebox_set_shuffle(s.jukebox_shuffle);
             jukebox_update_title();
+            break;
+        }
+        case IDM_JUKEBOX_PLAYLIST:
+            playlist_window_show(!playlist_window_visible());
+            break;
+        case IDM_JUKEBOX_PLAY_SELECTED: {
+            size_t index = 0;
+            if (playlist_window_take_selection(index) && jukebox_jump(index)) jukebox_play(0);
             break;
         }
         case IDM_JUKEBOX_SETTINGS:

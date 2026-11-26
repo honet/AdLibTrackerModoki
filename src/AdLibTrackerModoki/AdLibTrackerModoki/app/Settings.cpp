@@ -76,6 +76,17 @@ void settings_load()
     folder.resize(len);
     s.jukebox_folder = folder;
 
+    s.playlist_visible = GetPrivateProfileIntW(L"Jukebox", L"PlaylistVisible", s.playlist_visible ? 1 : 0, path.c_str()) != 0;
+    // 位置は負の値もあるので int として読む
+    s.playlist_x = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistX", 0, path.c_str()));
+    s.playlist_y = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistY", 0, path.c_str()));
+    s.playlist_width = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistWidth", 0, path.c_str()));
+    s.playlist_height = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistHeight", 0, path.c_str()));
+    if (s.playlist_width <= 0 || s.playlist_height <= 0) {
+        s.playlist_width = 0;
+        s.playlist_height = 0;
+    }
+
     g_settings = s;
 }
 
@@ -111,4 +122,9 @@ void settings_save()
     WritePrivateProfileStringW(L"Jukebox", L"Subfolders", s.jukebox_subfolders ? L"1" : L"0", path.c_str());
     WritePrivateProfileStringW(L"Jukebox", L"FadeOut", s.jukebox_fade ? L"1" : L"0", path.c_str());
     WritePrivateProfileStringW(L"Jukebox", L"Folder", s.jukebox_folder.c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistVisible", s.playlist_visible ? L"1" : L"0", path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistX", std::to_wstring(s.playlist_x).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistY", std::to_wstring(s.playlist_y).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistWidth", std::to_wstring(s.playlist_width).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistHeight", std::to_wstring(s.playlist_height).c_str(), path.c_str());
 }

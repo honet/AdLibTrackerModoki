@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include <windows.h>
 
@@ -25,6 +27,17 @@ const std::wstring& jukebox_current();
 // 曲リストを dir (+1 / -1) だけ進め、そのファイルのパスを返す。端では反対側へ折り返す。
 // シャッフル中は 1 周するたびに並べ直す。
 const std::wstring& jukebox_step(int dir);
+
+// 曲リストの index 番目 (0 始まり) を今の曲にして、ジュークボックスを有効にする。
+// ジュークボックスを止めた後でも、曲リストが残っていれば再開できる。
+bool jukebox_jump(size_t index);
+
+// 演奏順の曲リスト (フルパス) と、それを作ったフォルダ
+const std::vector<std::wstring>& jukebox_list();
+const std::wstring& jukebox_folder();
+
+// 曲リストの並びが変わる (フォルダを開く・シャッフルの切り替え・1 周後の並べ直し) たびに増える値
+uint32_t jukebox_list_version();
 
 // シャッフルを切り替える。今の曲を先頭にして残りを並べ替える (オフなら名前順へ戻す)。
 void jukebox_set_shuffle(bool shuffle);
