@@ -24,6 +24,8 @@ rendering and audio output with native Windows APIs (Direct2D / DirectSound).
   - Nuked OPL3 1.8
   - ymfm (YMF262)
   - Real OPL3 hardware (via c86ctl)
+- Jukebox (clone-only feature): plays the songs in a chosen folder in order (or shuffled),
+  moving to the next song after the song has looped a set number of times or a maximum playing time is reached.
 
 ### Differences from the original
 

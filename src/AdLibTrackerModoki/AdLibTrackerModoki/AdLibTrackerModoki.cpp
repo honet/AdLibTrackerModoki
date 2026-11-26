@@ -8,6 +8,7 @@
 
 #include <string>
 
+#include "app/Jukebox.h"
 #include "app/Settings.h"
 #include "app/Sound.h"
 #include "platform/System.h"
@@ -224,6 +225,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 const bool delayable = emu == IDM_EMU_NUKED || emu == IDM_EMU_YMFM || emu == IDM_EMU_HARDWARE;
                 EnableMenuItem(hMenu, IDM_EMU_KEYON_DELAY, MF_BYCOMMAND | (delayable ? MF_ENABLED : MF_GRAYED));
                 CheckMenuItem(hMenu, IDM_EMU_KEYON_DELAY, MF_BYCOMMAND | (sound_keyon_delay() ? MF_CHECKED : MF_UNCHECKED));
+            }
+            {
+                const UINT state = jukebox_active() ? MF_ENABLED : MF_GRAYED;
+                for (UINT id : { IDM_JUKEBOX_NEXT, IDM_JUKEBOX_PREV, IDM_JUKEBOX_STOP }) {
+                    EnableMenuItem(hMenu, id, MF_BYCOMMAND | state);
+                }
+                CheckMenuItem(hMenu, IDM_JUKEBOX_SHUFFLE,
+                              MF_BYCOMMAND | (app_settings().jukebox_shuffle ? MF_CHECKED : MF_UNCHECKED));
             }
         }
         break;
