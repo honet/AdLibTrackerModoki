@@ -2085,6 +2085,7 @@ int A2Player::calc_order_jump()
 
     if (temp > 0x7f) {
         stopPlaying();
+        stopped_by_song_end = true;
         result = -1;
     }
     return result;
@@ -2126,6 +2127,7 @@ void A2Player::update_song_position()
                 current_line = 0;
                 pattern_break = false;
             } else {
+                const bool is_pattern_loop = pattern_break && (next_line & 0xf0) == pattern_loop_flag;
                 if (!(pattern_break && (next_line & 0xf0) == pattern_loop_flag) && current_order < 0x7f) {
                     std::memset(loopbck_table, BYTE_NULL, sizeof(loopbck_table));
                     std::memset(loop_table, BYTE_NULL, sizeof(loop_table));
@@ -2152,6 +2154,8 @@ void A2Player::update_song_position()
                 }
 
                 if (!play_single_patt) current_pattern = order_at(current_order);
+
+                if (!is_pattern_loop && !repeat_pattern && !play_single_patt && !calibrating) mark_order_visited();
 
                 if (!pattern_break) {
                     current_line = 0;
@@ -2683,12 +2687,33 @@ void A2Player::startPlaying()
     macro_speedup = sd.macro_speedup;
     update_timer(sd.tempo);
     std::memset(play_pos_buf, 0, sizeof(play_pos_buf));
+    reset_song_loop_count();
+}
+
+void A2Player::reset_song_loop_count()
+{
+    song_loop_count = 0;
+    stopped_by_song_end = false;
+    std::memset(order_visited, 0, sizeof(order_visited));
+    if (current_order < 0x80) order_visited[current_order] = true;
+}
+
+void A2Player::mark_order_visited()
+{
+    if (current_order >= 0x80) return;
+    if (order_visited[current_order]) {
+        // 通ったオーダーへ戻った: ひと回りしたとみなし、次の周回の記録を始める
+        ++song_loop_count;
+        std::memset(order_visited, 0, sizeof(order_visited));
+    }
+    order_visited[current_order] = true;
 }
 
 void A2Player::stopPlaying()
 {
     replay_forbidden = true;
     play_status = PlayStatus::Stopped;
+    stopped_by_song_end = false;   // 曲の終わりで止まったときは calc_order_jump で立て直す
     fade_out_volume = 63;
     repeat_pattern = false;
     global_volume = 63;
@@ -2837,6 +2862,8 @@ void A2Player::calibrate_player(uint8_t order, uint8_t line, bool line_dependent
     repeat_pattern = old_repeat_pattern;
     synchronize_song_timer();
     calibrating = false;
+    // 位置を移したので、ひと回りの判定はここから数え直す
+    reset_song_loop_count();
 }
 
 void A2Player::timerTick()

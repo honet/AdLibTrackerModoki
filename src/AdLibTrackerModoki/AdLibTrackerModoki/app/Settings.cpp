@@ -63,6 +63,30 @@ void settings_load()
 
     s.keyon_delay = GetPrivateProfileIntW(L"Sound", L"KeyOnDelay", s.keyon_delay ? 1 : 0, path.c_str()) != 0;
 
+    const UINT loops = GetPrivateProfileIntW(L"Jukebox", L"Loops", s.jukebox_loops, path.c_str());
+    if (loops >= 1 && loops <= 99) s.jukebox_loops = static_cast<int>(loops);
+    const UINT minutes = GetPrivateProfileIntW(L"Jukebox", L"MaxMinutes", s.jukebox_max_minutes, path.c_str());
+    if (minutes >= 1 && minutes <= 59) s.jukebox_max_minutes = static_cast<int>(minutes);
+    s.jukebox_shuffle = GetPrivateProfileIntW(L"Jukebox", L"Shuffle", s.jukebox_shuffle ? 1 : 0, path.c_str()) != 0;
+    s.jukebox_subfolders = GetPrivateProfileIntW(L"Jukebox", L"Subfolders", s.jukebox_subfolders ? 1 : 0, path.c_str()) != 0;
+    s.jukebox_fade = GetPrivateProfileIntW(L"Jukebox", L"FadeOut", s.jukebox_fade ? 1 : 0, path.c_str()) != 0;
+    std::wstring folder(MAX_PATH * 4, L'\0');
+    const DWORD len = GetPrivateProfileStringW(L"Jukebox", L"Folder", L"", folder.data(),
+                                               static_cast<DWORD>(folder.size()), path.c_str());
+    folder.resize(len);
+    s.jukebox_folder = folder;
+
+    s.playlist_visible = GetPrivateProfileIntW(L"Jukebox", L"PlaylistVisible", s.playlist_visible ? 1 : 0, path.c_str()) != 0;
+    // 位置は負の値もあるので int として読む
+    s.playlist_x = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistX", 0, path.c_str()));
+    s.playlist_y = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistY", 0, path.c_str()));
+    s.playlist_width = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistWidth", 0, path.c_str()));
+    s.playlist_height = static_cast<int>(GetPrivateProfileIntW(L"Jukebox", L"PlaylistHeight", 0, path.c_str()));
+    if (s.playlist_width <= 0 || s.playlist_height <= 0) {
+        s.playlist_width = 0;
+        s.playlist_height = 0;
+    }
+
     g_settings = s;
 }
 
@@ -70,6 +94,18 @@ void settings_save()
 {
     const std::wstring path = ini_path();
     const AppSettings& s = g_settings;
+
+    // フォルダ名に ANSI で表せない文字があっても保存できるよう、新しく作る ini は UTF-16 にする
+    // (UTF-16 の BOM があるファイルには WritePrivateProfileString も UTF-16 で書き込む)
+    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            const BYTE bom[] = { 0xff, 0xfe };
+            DWORD written = 0;
+            WriteFile(h, bom, sizeof(bom), &written, nullptr);
+            CloseHandle(h);
+        }
+    }
 
     const wchar_t* emulator = kEmulatorNames[0].name;
     for (const auto& e : kEmulatorNames) {
@@ -80,4 +116,15 @@ void settings_save()
     WritePrivateProfileStringW(L"Display", L"WindowScale", std::to_wstring(s.window_scale).c_str(), path.c_str());
     WritePrivateProfileStringW(L"Sound", L"Emulator", emulator, path.c_str());
     WritePrivateProfileStringW(L"Sound", L"KeyOnDelay", s.keyon_delay ? L"1" : L"0", path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"Loops", std::to_wstring(s.jukebox_loops).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"MaxMinutes", std::to_wstring(s.jukebox_max_minutes).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"Shuffle", s.jukebox_shuffle ? L"1" : L"0", path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"Subfolders", s.jukebox_subfolders ? L"1" : L"0", path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"FadeOut", s.jukebox_fade ? L"1" : L"0", path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"Folder", s.jukebox_folder.c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistVisible", s.playlist_visible ? L"1" : L"0", path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistX", std::to_wstring(s.playlist_x).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistY", std::to_wstring(s.playlist_y).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistWidth", std::to_wstring(s.playlist_width).c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Jukebox", L"PlaylistHeight", std::to_wstring(s.playlist_height).c_str(), path.c_str());
 }

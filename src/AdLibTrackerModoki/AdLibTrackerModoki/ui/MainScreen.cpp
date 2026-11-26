@@ -20,6 +20,8 @@
 #include "StringIO.h"
 #include "TxtScrIO.h"
 #include "../Resource.h"
+#include "../app/Jukebox.h"
+#include "../app/PlaylistWindow.h"
 #include "../app/Settings.h"
 #include "../app/Sound.h"
 #include "../core/player/A2Player.h"
@@ -1673,9 +1675,15 @@ uint8_t _patts_marked()
 void reset_positions_on_load();
 void add_bank_position(const std::string& bank_name, int32_t bank_size, int32_t bank_position);
 
-void load_song(const std::wstring& path)
+void jukebox_end();
+
+// 曲を読み込む。読み込めたら true を返す。
+// from_jukebox: ジュークボックスの曲送り (失敗してもメッセージを出さない。fade で切り替え前のフェードアウトを選ぶ)
+// ジュークボックス以外から曲を開いたときは、ジュークボックスを止める。
+bool load_song(const std::wstring& path, bool from_jukebox = false, bool fade = true)
 {
-    fade_out_playback(false);
+    if (!from_jukebox) jukebox_end();
+    if (fade) fade_out_playback(false);
 
     const bool is_pattern = GetModuleKind(path) == ModuleKind::Pattern;
     std::wstring error;
@@ -1685,10 +1693,12 @@ void load_song(const std::wstring& path)
         to_marked = pattern2use != BYTE_NULL && _patts_marked() != 0;
     }
     if (!sound_open_song(path, pattern2use != BYTE_NULL ? pattern2use : pattern_patt, to_marked, error)) {
-        MessageBoxW(g_hwnd, error.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
-        keyboard_init();
+        if (!from_jukebox) {
+            MessageBoxW(g_hwnd, error.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
+            keyboard_init();
+        }
         refresh_windows();
-        return;
+        return false;
     }
 
     PlayerLock lock;
@@ -1710,6 +1720,7 @@ void load_song(const std::wstring& path)
     force_scrollbars = false;
     std::fill(std::begin(p.ai_table), std::end(p.ai_table), uint8_t(0));
     no_status_refresh = false;
+    return true;
 }
 
 // F3: ファイルを開く (本クローン版では Windows のコモンダイアログを使う)
@@ -2301,6 +2312,10 @@ void change_screen_mode(uint8_t mode)
     status_refresh();
 }
 
+// ジュークボックスが曲を読み込み、F5 と同じ手順で演奏を始めるのを待っている
+// (トレース中はトレースが演奏の停止で抜けた後、パターン窓 / PATTERN ORDER 窓で F5 として処理する)
+bool jukebox_start_pending = false;
+
 void change_emulator(EmulatorType type)
 {
     fade_out_playback(false);
@@ -2311,11 +2326,119 @@ void change_emulator(EmulatorType type)
     app_settings().emulator = sound_emulator();
     settings_save();
     refresh_windows();
+    if (jukebox_active()) {
+        // ジュークボックスの演奏中は、新しい音源で今の曲を最初から演奏し直す (F5 と同じ手順で始める)
+        jukebox_start_pending = true;
+    }
     if (!ok && type == EmulatorType::C86ctl) {
         std::wstring msg = L"OPL3 hardware is not available. Playback continues with the emulator.";
         if (!error.empty()) msg += L"\n\n" + error;
         MessageBoxW(g_hwnd, msg.c_str(), L"AdLibTrackerModoki", MB_OK | MB_ICONWARNING);
     }
+}
+
+// ---------------------------------------------------------------------------
+// ジュークボックス (クローン版独自機能)
+// ---------------------------------------------------------------------------
+
+// ウィンドウのタイトルにジュークボックスの曲番号とファイル名を出す
+void jukebox_update_title()
+{
+    std::wstring title = L"AdLibTrackerModoki";
+    if (jukebox_active()) {
+        title += L" - Jukebox [" + std::to_wstring(jukebox_index() + 1) + L"/" + std::to_wstring(jukebox_count()) +
+                 L"] " + std::filesystem::path(jukebox_current()).filename().wstring();
+    }
+    SetWindowTextW(g_hwnd, title.c_str());
+    playlist_window_sync();
+}
+
+void jukebox_end()
+{
+    jukebox_start_pending = false;
+    if (!jukebox_active()) return;
+    jukebox_stop();
+    jukebox_update_title();   // プレイリストの演奏中の印も消える
+}
+
+// ジュークボックスの曲を読み込んで演奏を始める。
+// dir = 0 は今の曲、+1 / -1 は次 / 前の曲。読み込めない曲は同じ向きに飛ばす。
+// 演奏できる曲が 1 つもなければジュークボックスを止めて false を返す。
+bool jukebox_play(int dir)
+{
+    const bool fade = app_settings().jukebox_fade;
+    const size_t n = jukebox_count();
+    for (size_t tries = 0; tries < n; ++tries) {
+        const std::wstring path = (tries == 0 && dir == 0) ? jukebox_current() : jukebox_step(dir < 0 ? -1 : 1);
+        // 失敗した曲の後はもう止まっているので、フェードアウトは最初の 1 回だけ
+        if (load_song(path, true, fade && tries == 0)) {
+            // 演奏は process_events が F5 を返して始める (トレースに入るかどうかも F5 と同じになる)
+            jukebox_start_pending = true;
+            jukebox_update_title();
+            return true;
+        }
+    }
+    jukebox_stop();
+    jukebox_update_title();
+    MessageBoxW(g_hwnd, L"No playable files were found in the jukebox folder.", L"AdLibTrackerModoki",
+                MB_OK | MB_ICONWARNING);
+    keyboard_init();
+    return false;
+}
+
+// Jukebox > Open Folder...
+void jukebox_open_folder()
+{
+    AppSettings& s = app_settings();
+    std::wstring folder = s.jukebox_folder;
+    const bool picked = jukebox_pick_folder(g_hwnd, folder);
+    keyboard_init();
+    if (!picked) return;
+    s.jukebox_folder = folder;
+    settings_save();
+
+    if (!jukebox_build(folder, s.jukebox_subfolders, s.jukebox_shuffle)) {
+        MessageBoxW(g_hwnd, L"No supported files were found in the selected folder.", L"AdLibTrackerModoki",
+                    MB_OK | MB_ICONINFORMATION);
+        keyboard_init();
+        return;
+    }
+    if (s.playlist_visible) playlist_window_show(true, false);
+    jukebox_play(0);
+}
+
+// メインループから毎回呼ぶ。今の曲が終わっていれば次の曲へ進める。
+void jukebox_poll()
+{
+    if (!jukebox_active() || jukebox_start_pending) return;
+
+    bool next = false;
+    bool stopped_by_user = false;
+    {
+        PlayerLock lock;
+        const A2Player& p = P();
+        if (p.play_status == PlayStatus::Stopped) {
+            // F7 などで止められたときはジュークボックスも止める。曲の終わりで止まったときは次の曲へ
+            if (p.stopped_by_song_end) next = true;
+            else stopped_by_user = true;
+        } else if (p.play_status == PlayStatus::Playing && !p.debugging) {
+            const AppSettings& s = app_settings();
+            next = p.song_loop_count >= static_cast<uint32_t>(s.jukebox_loops) ||
+                   p.time_playing >= s.jukebox_max_minutes * 60.0;
+        }
+    }
+    if (stopped_by_user) {
+        jukebox_end();
+        return;
+    }
+    if (!next) return;
+
+    // 編集した曲は読み込みで失われるので、曲を切り替えずにジュークボックスを止める
+    if (!module_archived) {
+        jukebox_end();
+        return;
+    }
+    jukebox_play(+1);
 }
 
 // メニューのコマンドとドロップされたファイルを処理する。
@@ -2347,12 +2470,49 @@ uint16_t process_events()
             settings_save();
             break;
         case IDM_EMU_HARDWARE: change_emulator(EmulatorType::C86ctl); break;
+        case IDM_JUKEBOX_OPEN: jukebox_open_folder(); break;
+        case IDM_JUKEBOX_NEXT: if (jukebox_active()) jukebox_play(+1); break;
+        case IDM_JUKEBOX_PREV: if (jukebox_active()) jukebox_play(-1); break;
+        case IDM_JUKEBOX_STOP:
+            if (jukebox_active()) {
+                jukebox_end();
+                fade_out_playback(false);
+                PlayerLock lock;
+                P().debugging = false;
+                stop_playing();
+            }
+            break;
+        case IDM_JUKEBOX_SHUFFLE: {
+            AppSettings& s = app_settings();
+            s.jukebox_shuffle = !s.jukebox_shuffle;
+            settings_save();
+            jukebox_set_shuffle(s.jukebox_shuffle);
+            jukebox_update_title();
+            break;
+        }
+        case IDM_JUKEBOX_PLAYLIST:
+            playlist_window_show(!playlist_window_visible());
+            break;
+        case IDM_JUKEBOX_PLAY_SELECTED: {
+            size_t index = 0;
+            if (playlist_window_take_selection(index) && jukebox_jump(index)) jukebox_play(0);
+            break;
+        }
+        case IDM_JUKEBOX_SETTINGS:
+            jukebox_settings_dialog(g_hwnd);
+            keyboard_init();
+            break;
         default: break;
         }
     }
 
     std::wstring path;
     if (sys_take_dropped_file(path)) load_song(path);
+    jukebox_poll();
+    if (jukebox_start_pending && !tracing) {
+        jukebox_start_pending = false;
+        return kF5;
+    }
     return WORD_NULL;
 }
 

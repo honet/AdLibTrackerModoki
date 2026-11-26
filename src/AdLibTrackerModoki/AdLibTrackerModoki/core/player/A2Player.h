@@ -330,6 +330,17 @@ public:
     bool percussion_mode = false;
     uint8_t last_order = 0;
 
+    // クローン版独自: ジュークボックスの曲送り用に、曲がひと回りした回数を数える。
+    // 演奏中にすでに通ったオーダーへ戻ったとき (末尾から先頭への折り返し、ジャンプ、Bxx) に 1 増やす。
+    // パターン内のループ、パターンのリピート、単一パターンの演奏、位置合わせ中は数えない。
+    // 演奏には影響しない。
+    uint32_t song_loop_count = 0;
+    bool stopped_by_song_end = false;            // オーダーのジャンプが巡回して演奏が止まった
+
+    bool order_visited[0x80] = {};
+    void reset_song_loop_count();
+    void mark_order_visited();
+
     int32_t song_timer = 0;
     int32_t timer_temp = 0;
     int32_t song_timer_tenths = 0;
